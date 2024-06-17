@@ -10,7 +10,7 @@ from agents import (
     ask_user_for_feedback,
     web_search,
     add_urls_to_database,
-    decide_to_generate,
+    decide_to_rerank,
     decide_to_search,
     GraphState
 )
@@ -40,16 +40,15 @@ def create_graph():
     workflow.add_edge("improve_question", "formulate_query")
     workflow.add_edge("formulate_query", "generate_search_query")
     workflow.add_edge("generate_search_query", "retrieve_from_database")
-    # workflow.add_edge("retrieve_from_database", "grade_documents")
-    workflow.add_edge("retrieve_from_database", "rerank_documents")
     workflow.add_conditional_edges(
-        "rerank_documents",
-        decide_to_generate,
+        "retrieve_from_database",
+        decide_to_rerank,
         {
-            "web_search": "web_search_node",
-            "generate": "generate",
-        },
+            "rerank": "rerank_documents",
+            "no_rerank": "generate"
+        }
     )
+    workflow.add_edge("rerank_documents", "generate")
     workflow.add_edge("generate", "ask_user_for_feedback")
     workflow.add_edge("web_search_node", "add_urls_to_database")
     workflow.add_edge("add_urls_to_database", "retrieve_from_database")

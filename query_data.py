@@ -2,7 +2,7 @@ import argparse
 import os
 from typing import Literal, Optional
 from dotenv import load_dotenv
-from tools import db
+from tools import get_vector_store
 import langcodes
 
 
@@ -54,6 +54,7 @@ def main():
 
     args = parser.parse_args()
     query_text = args.query_text
+    db = get_vector_store()
     run_query(
         query_text,
         db,

@@ -226,14 +226,13 @@ def rerank_docs(state: GraphState):
     documents = state["documents"]
     question = state["question"]
 
-    if state["do_rerank"]:
-        # Cohere API
-        import cohere
+    # Cohere API
+    import cohere
 
-        co = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
-        reranked_results = co.rerank(model="rerank-multilingual-v3.0", query=question, documents=[doc.page_content for doc in documents])
-        state["documents"] = [documents[docIndex.index] for docIndex in reranked_results.results if docIndex.relevance_score > 0.05]
-        print("Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]])
+    co = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
+    reranked_results = co.rerank(model="rerank-multilingual-v3.0", query=question, documents=[doc.page_content for doc in documents])
+    state["documents"] = [documents[docIndex.index] for docIndex in reranked_results.results if docIndex.relevance_score > 0.05]
+    print("Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]])
     return {"documents": state["documents"]}
 
 def grade_documents(state: GraphState):
@@ -482,11 +481,9 @@ def add_urls_to_database(state):
 
 
 ### Edges
-
-
-def decide_to_generate(state):
+def decide_to_rerank(state):
     """
-    Determines whether to generate an answer, or run a web search first.
+    Determines whether to rerank documents
 
     Args:
         state (dict): The current graph state
@@ -495,10 +492,12 @@ def decide_to_generate(state):
         str: Binary decision for next node to call
     """
 
-    # if state.get("web_search_completed", False):
-    return "generate"
-    # else:
-    #     return "web_search"
+    if state.get("do_rerank", False):
+        return "rerank"
+    else:
+        return "no_rerank"
+
+
 
 
 def ask_user_for_feedback(state):

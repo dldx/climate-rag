@@ -7,9 +7,6 @@ from tools import add_urls_to_db, split_documents, add_to_chroma, get_vector_sto
 CHROMA_PATH = "chroma"
 DATA_PATH = "data"
 
-db = get_vector_store()
-
-
 def main():
     # Check if the database should be cleared (using the --clear flag).
     parser = argparse.ArgumentParser()

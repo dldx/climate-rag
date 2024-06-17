@@ -117,11 +117,12 @@ def format_docs(docs):
     )
 
 def get_vector_store():
+    import chromadb
+    client = chromadb.HttpClient(host='localhost', port=8000)
     embedding_function = get_embedding_function()
-    db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
-    return db
 
-db = get_vector_store()
+    db = Chroma(client=client, collection_name="langchain", embedding_function=embedding_function)
+    return db
 
 def load_documents():
     # Load PDF documents.
