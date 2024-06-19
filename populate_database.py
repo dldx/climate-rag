@@ -1,11 +1,10 @@
 import argparse
 import os
 import shutil
-from tools import add_urls_to_db, split_documents, add_to_chroma, get_vector_store, load_documents
+from tools import add_urls_to_db_firecrawl, split_documents, add_to_chroma, get_vector_store, load_documents, clear_database
 
 
 CHROMA_PATH = "chroma"
-DATA_PATH = "data"
 
 def main():
     # Check if the database should be cleared (using the --clear flag).
@@ -20,7 +19,7 @@ def main():
     # Create (or update) the data store.
     db = get_vector_store()
     if args.url:
-        add_urls_to_db([args.url], db)
+        add_urls_to_db_firecrawl([args.url], db)
     else:
         documents = load_documents()
         chunks = split_documents(documents)
@@ -28,9 +27,6 @@ def main():
 
 
 
-def clear_database():
-    if os.path.exists(CHROMA_PATH):
-        shutil.rmtree(CHROMA_PATH)
 
 
 if __name__ == "__main__":

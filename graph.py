@@ -12,6 +12,7 @@ from agents import (
     add_urls_to_database,
     decide_to_rerank,
     decide_to_search,
+    decide_to_generate,
     GraphState
 )
 import os
@@ -39,7 +40,11 @@ def create_graph():
     workflow.set_entry_point("improve_question")
     workflow.add_edge("improve_question", "formulate_query")
     workflow.add_edge("formulate_query", "generate_search_query")
-    workflow.add_edge("generate_search_query", "retrieve_from_database")
+    workflow.add_conditional_edges("generate_search_query",
+                                  decide_to_generate,
+                                  {
+                                    "generate":  "retrieve_from_database",
+                                    "no_generate": "web_search_node"})
     workflow.add_conditional_edges(
         "retrieve_from_database",
         decide_to_rerank,

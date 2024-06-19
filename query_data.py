@@ -38,9 +38,24 @@ def main():
         default="serper",
     )
     parser.add_argument(
+        "--improve-question",
+        action=argparse.BooleanOptionalAction,
+        help="Whether to improve the question before querying the database",
+    )
+    parser.add_argument(
         "--rerank",
         action=argparse.BooleanOptionalAction,
         help="Whether to rerank the documents after retrieval",
+    )
+    parser.add_argument(
+        "--crawl",
+        action=argparse.BooleanOptionalAction,
+        help="Whether to crawl the web for more documents",
+    )
+    parser.add_argument(
+        "--initial-generation",
+        action=argparse.BooleanOptionalAction,
+        help="Whether to generate before querying the web",
     )
 
     parser.add_argument(
@@ -50,7 +65,7 @@ def main():
         default="en",
     )
 
-    parser.set_defaults(rerank=True)
+    parser.set_defaults(rerank=True, crawl=True, improve_question=True, initial_generation=True)
 
     args = parser.parse_args()
     query_text = args.query_text
@@ -59,9 +74,12 @@ def main():
         query_text,
         db,
         rag_filter=args.rag_filter,
+        improve_question=args.improve_question,
         search_tool=args.search_tool,
         do_rerank=args.rerank,
+        do_crawl=args.crawl,
         language=args.language,
+        initial_generation=args.initial_generation,
     )
 
 
@@ -72,7 +90,9 @@ def run_query(
     improve_question: Optional[bool] = True,
     search_tool: Literal["serper", "tavily", "baidu"] = "serper",
     do_rerank: Optional[bool] = True,
+    do_crawl: Optional[bool] = True,
     language: Literal["en", "zh", "vi"] = "en",
+    initial_generation: Optional[bool] = True,
 ):
     from graph import create_graph
 
@@ -87,6 +107,7 @@ def run_query(
         "search_tool": search_tool,
         "do_rerank": do_rerank,
         "language": language,
+        "initial_generation": initial_generation,
     }
     for output in app.stream(inputs):
         for key, value in output.items():

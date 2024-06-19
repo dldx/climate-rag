@@ -15,14 +15,34 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 
 import tiktoken
+import re
 enc = tiktoken.encoding_for_model("gpt-4o")
 
 web_search_tool = TavilySearchResults(k=3)
 CHROMA_PATH = "chroma"
+DATA_PATH = "data"
 
 
 from dotenv import load_dotenv
 load_dotenv()
+
+def check_page_content_for_errors(page_content: str):
+    if ("SecurityCompromiseError" in page_content):
+        return "SecurityCompromiseError"
+    elif ("InsufficientBalanceError" in page_content):
+        return "InsufficientBalanceError"
+    elif ("AssertionFailureError" in page_content):
+        return "AssertionFailureError"
+    elif ("TimeoutError" in page_content):
+        return "TimeoutError"
+    elif ("Access Denied" in page_content):
+        return "Access Denied"
+    elif (page_content == "") or (len(page_content) < 600):
+        return "Empty or minimal page content"
+    elif bool(re.search("(404*.not found)|(page not found)|(page cannot be found)|(HTTP404)|(File or directory not found.)|(Page You Requested Was Not Found)|(Error: Page.goto:)|(404 error)|(404 Not Found)|(404 Page Not Found)|(Error 404)|(404 - File or directory not found)|(HTTP Error 404)|(Not Found - 404)|(404 - Not Found)|(404 - Page Not Found)|(Error 404 - Not Found)|(404 - File Not Found)|(HTTP 404 - Not Found)|(404 - Resource Not Found)", page_content, re.IGNORECASE)):
+        return "Page not found in content"
+    else:
+        return None
 
 def add_urls_to_db(urls: List[str], db):
     from langchain_community.document_loaders import AsyncHtmlLoader
@@ -50,9 +70,13 @@ def add_urls_to_db(urls: List[str], db):
             print("Adding to database: ", url)
             loader = AsyncHtmlLoader([url], header_template=default_header_template)
             webdocs = loader.load()
-            chunks = split_documents(webdocs)
-            add_to_chroma(db, chunks)
-            docs += webdocs
+            page_errors = check_page_content_for_errors(webdocs[0].page_content)
+            if page_errors:
+                print(f"Error loading {url}: {page_errors}")
+            else:
+                chunks = split_documents(webdocs)
+                add_to_chroma(db, chunks)
+                docs += webdocs
     return docs
 
 def add_urls_to_db_firecrawl(urls: List[str], db):
@@ -69,13 +93,18 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
                 for doc in webdocs:
                     doc.metadata["source"] = url
 
-                webdocs = filter_complex_metadata(webdocs)
-                chunks = split_documents(webdocs)
-                add_to_chroma(db, chunks)
-                docs += webdocs
+
+                page_errors = check_page_content_for_errors(webdocs[0].page_content)
+                if page_errors:
+                    print(f"Error loading {url}: {page_errors}")
+                else:
+                    webdocs = filter_complex_metadata(webdocs)
+                    chunks = split_documents(webdocs)
+                    add_to_chroma(db, chunks)
+                    docs += webdocs
             except Exception as e:
                 print(f"Error loading {url}: {e}")
-                if "429" in str(e) and "pdf" not in url:
+                if (("429" in str(e)) or ("402" in str(e))) and "pdf" not in url:
                     # use local chrome loader instead
                     docs += add_urls_to_db_chrome([url], db)
                 elif "502" in str(e):
@@ -101,10 +130,17 @@ def add_urls_to_db_chrome(urls: List[str], db):
     # Transform the documents to markdown
     html2text = Html2TextTransformer(ignore_links=False)
     docs_transformed = html2text.transform_documents(docs)
-    chunks = split_documents(docs_transformed)
-    add_to_chroma(db, chunks)
+    docs_to_return = []
+    for doc in docs_transformed:
+        page_errors = check_page_content_for_errors(doc.page_content)
+        if page_errors:
+            print(f"Error loading {doc.metadata.get('source')}: {page_errors}")
+        else:
+            chunks = split_documents([doc])
+            add_to_chroma(db, chunks)
+            docs_to_return += doc
 
-    return docs_transformed
+        return docs_to_return
 
 
 def format_docs(docs):
@@ -136,6 +172,10 @@ def load_documents():
         data += document_loader.load()
 
     return data
+
+def clear_database():
+    if os.path.exists(CHROMA_PATH):
+        shutil.rmtree(CHROMA_PATH)
 
 
 def split_documents(documents: list[Document], splitter: Literal['character', 'semantic'] = 'semantic', max_token_length: int = 3000, iter_no: int = 0) -> list[Document]:

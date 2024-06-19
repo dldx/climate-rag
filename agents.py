@@ -53,8 +53,10 @@ class GraphState(TypedDict):
     rag_filter: str
     shall_improve_question: bool
     do_rerank: bool
+    do_crawl: bool
     search_tool: Literal["serper", "tavily", "baidu"]
     language: Literal["en", "zh", "vi"]
+    initial_generation: bool
 
 
 def get_current_utc_datetime():
@@ -63,7 +65,7 @@ def get_current_utc_datetime():
     return current_time_utc
 
 
-def improve_question(state):
+def improve_question(state: GraphState):
     """
     Transform the query to produce a better question.
 
@@ -292,7 +294,7 @@ def grade_documents(state: GraphState):
     return state
 
 
-def web_search(state):
+def web_search(state: GraphState):
     """
     Web search based on the re-phrased question.
 
@@ -310,7 +312,7 @@ def web_search(state):
     print("---WEB SEARCH---")
     search_query = state["search_query"]
     print("Search Query: ", search_query)
-    documents = state["documents"]
+    documents = state["documents"] or []
 
     # Web search
     if search_tool == "serper":
@@ -419,7 +421,7 @@ def crawl_or_not(doc: Document, question: str):
     return crawl_decision
 
 
-def add_urls_to_database(state):
+def add_urls_to_database(state: GraphState):
     """
     Add web search results to the database.
 
@@ -448,21 +450,22 @@ def add_urls_to_database(state):
         # Add urls to database
         docs = add_urls_to_db_firecrawl(urls, db)
         # Check if docs need to be further crawled
-        for doc in docs:
-            crawl_decision = crawl_or_not(doc, state["question"])
-            print(crawl_decision)
-            if crawl_decision.crawl:
-                if len(crawl_decision.urls_to_scrape) > 10:
-                    print("Too many urls to scrape, only scraping first 10")
-                add_urls_to_db_firecrawl(
-                    list(
-                        filter(
-                            lambda x: True,  # "fjord-coffee.de" in x,
-                            crawl_decision.urls_to_scrape,
-                        )
-                    )[:10],
-                    db,
-                )
+        if state["do_crawl"]:
+            for doc in docs:
+                crawl_decision = crawl_or_not(doc, state["question"])
+                print(crawl_decision)
+                if crawl_decision.crawl:
+                    if len(crawl_decision.urls_to_scrape) > 10:
+                        print("Too many urls to scrape, only scraping first 10")
+                    add_urls_to_db_firecrawl(
+                        list(
+                            filter(
+                                lambda x: True,  # "fjord-coffee.de" in x,
+                                crawl_decision.urls_to_scrape,
+                            )
+                        )[:10],
+                        db,
+                    )
     else:
         # Get list of urls
         urls = list(
@@ -520,6 +523,23 @@ def ask_user_for_feedback(state):
         "generation": state["generation"],
     }
 
+def decide_to_generate(state: GraphState):
+    """
+    Determines whether to generate an answer, or skip to web search.
+
+    Args:
+        state (dict): The current graph state
+
+    Returns:
+        str: Binary decision for next node to call
+    """
+
+    if state["initial_generation"]:
+        return "generate"
+    else:
+        # Change initial_generation to True for next cycle
+        state["initial_generation"] = True
+        return "no_generate"
 
 def decide_to_search(state):
     """
