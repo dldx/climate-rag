@@ -10,7 +10,7 @@ def main():
     # Check if the database should be cleared (using the --clear flag).
     parser = argparse.ArgumentParser()
     parser.add_argument("--reset", action="store_true", help="Reset the database.")
-    parser.add_argument("--url", type=str, help="URL to add to the database.")
+    parser.add_argument("--urls", nargs="+", default=[], help="URL(s) to add to the database.")
     args = parser.parse_args()
     if args.reset:
         print("✨ Clearing Database")
@@ -18,8 +18,9 @@ def main():
 
     # Create (or update) the data store.
     db = get_vector_store()
-    if args.url:
-        add_urls_to_db_firecrawl([args.url], db)
+    if args.urls:
+        for url in args.urls:
+            add_urls_to_db_firecrawl([url], db)
     else:
         documents = load_documents()
         chunks = split_documents(documents)

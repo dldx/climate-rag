@@ -13,6 +13,7 @@ from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
+from datetime import datetime
 
 import tiktoken
 import re
@@ -70,6 +71,9 @@ def add_urls_to_db(urls: List[str], db):
             print("Adding to database: ", url)
             loader = AsyncHtmlLoader([url], header_template=default_header_template)
             webdocs = loader.load()
+            for doc in webdocs:
+                doc.metadata["source"] = url
+                doc.metadata["date_added"] = datetime.now().isoformat()
             page_errors = check_page_content_for_errors(webdocs[0].page_content)
             if page_errors:
                 print(f"Error loading {url}: {page_errors}")
@@ -92,6 +96,7 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
                 webdocs = loader.load()
                 for doc in webdocs:
                     doc.metadata["source"] = url
+                    doc.metadata["date_added"] = datetime.now().isoformat()
 
 
                 page_errors = check_page_content_for_errors(webdocs[0].page_content)
@@ -117,7 +122,7 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
     return docs
 
 def add_urls_to_db_chrome(urls: List[str], db):
-    from langchain_community.document_loaders import AsyncChromiumLoader
+    from chromium import AsyncChromiumLoader
     from langchain_community.document_transformers import Html2TextTransformer
     import nest_asyncio
     nest_asyncio.apply()
@@ -125,11 +130,13 @@ def add_urls_to_db_chrome(urls: List[str], db):
     # Filter urls that are already in the database
     filtered_urls = [url for url in urls if len(db.get(where={"source": url})["ids"]) == 0]
     print("Adding to database: ", filtered_urls)
-    loader = AsyncChromiumLoader(urls = filtered_urls, headless=False)
+    loader = AsyncChromiumLoader(urls = filtered_urls)
     docs = loader.load()
     # Transform the documents to markdown
     html2text = Html2TextTransformer(ignore_links=False)
     docs_transformed = html2text.transform_documents(docs)
+    for doc in docs_transformed:
+        doc.metadata["date_added"] = datetime.now().isoformat()
     docs_to_return = []
     for doc in docs_transformed:
         page_errors = check_page_content_for_errors(doc.page_content)
@@ -140,7 +147,7 @@ def add_urls_to_db_chrome(urls: List[str], db):
             add_to_chroma(db, chunks)
             docs_to_return += doc
 
-        return docs_to_return
+    return docs_to_return
 
 
 def format_docs(docs):
@@ -197,7 +204,6 @@ def split_documents(documents: list[Document], splitter: Literal['character', 's
             # Check if token length is too long
             enc = tiktoken.encoding_for_model("gpt-4o")
             if len(enc.encode(doc.page_content)) > max_token_length:
-                print(f"Document {doc.metadata['source']} is too long. Splitting further.")
                 doc_index = split_docs.index(doc)
                 split_docs.remove(doc)
                 split_docs.insert(doc_index, split_documents([doc], splitter=splitter, max_token_length=max_token_length, iter_no=iter_no+1))

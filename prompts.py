@@ -1,3 +1,15 @@
+question_rewriter_prompt = """You a question re-writer that converts an input question to a better version that is optimized for vectorstore retrieval.
+
+Look at the initial and formulate an improved question.
+
+Here is today's date and time (Timezone: UTC): `{datetime}`
+
+Return the input in {language} to find the best answers and also in English for reference.
+
+The json object should have the following format:
+{response_format}
+"""
+
 planning_agent_prompt = """
 You are an AI planning agent working with an integration agent.
 
@@ -142,9 +154,5 @@ In your comprehensive response, you MUST do the following:
 
 If you don't know the answer, just say that you don't know.
 
-Reply in English.
-
-Question: {question}.
-
-Context: {context}
+Your response must be in English or translated into English.
 """

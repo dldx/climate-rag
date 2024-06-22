@@ -2,11 +2,11 @@ from datetime import datetime, timezone
 from typing import Any, List, Literal
 from langchain.schema import Document
 from typing_extensions import TypedDict
+from langcodes import Language
 from langchain_core.output_parsers import StrOutputParser
 
 from langchain.prompts import PromptTemplate, ChatPromptTemplate
-from langchain_community.chat_models import ChatOllama
-from langchain_openai import ChatOpenAI
+from llms import get_chatbot
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
@@ -16,7 +16,7 @@ from tools import (
     add_urls_to_db,
     add_urls_to_db_firecrawl,
     format_docs,
-    enc
+    enc,
 )
 import numpy as np
 
@@ -25,8 +25,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-run_local = False
-local_llm = "mistral"
 MAX_TOKEN_LENGTH = 24_000
 
 
@@ -41,9 +39,12 @@ class GraphState(TypedDict):
         documents: list of documents
     """
 
+    llm: Literal["gpt-4o", "mistral", "claude"]
     question: str
+    question_en: str
     search_prompts: str
     search_query: str
+    search_query_en: str
     generation: str
     web_search: str
     web_search_completed: bool
@@ -64,6 +65,9 @@ def get_current_utc_datetime():
     current_time_utc = now_utc.strftime("%Y-%m-%d %H:%M:%S %Z")
     return current_time_utc
 
+class ImprovedQuestion(BaseModel):
+    question: str = Field(description="The improved question")
+    question_en: str = Field(description="The improved question in English")
 
 def improve_question(state: GraphState):
     """
@@ -75,33 +79,40 @@ def improve_question(state: GraphState):
     Returns:
         state (dict): Updates question key with a re-phrased question
     """
+    from prompts import question_rewriter_prompt
 
     ### Question Re-writer
 
     # LLM
-    if run_local:
-        llm = ChatOllama(model=local_llm, temperature=0)
-    else:
-        llm = ChatOpenAI(model="gpt-4o")
+    llm = get_chatbot(state["llm"])
+
+    parser = PydanticOutputParser(pydantic_object=ImprovedQuestion)
 
     # Prompt
-    re_write_prompt = PromptTemplate(
-        template="""You a question re-writer that converts an input question to a better version that is optimized \n
-        for vectorstore retrieval. Look at the initial and formulate an improved question. \n
-        Here is the initial question: \n\n {question}. Improved question with no preamble: \n """,
-        input_variables=["generation", "question"],
+    re_write_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", question_rewriter_prompt),
+            ("human", "Initial question: {question}"),
+        ]
+    ).partial(
+        question=state["question"],
+        response_format=parser.get_format_instructions(),
+        datetime=get_current_utc_datetime(),
+        language=Language.get(state["language"]).display_name(),
     )
 
-    question_rewriter = re_write_prompt | llm | StrOutputParser()
-    # question_rewriter.invoke({"question": question})
+    question_rewriter = re_write_prompt | llm | parser
 
     # Re-write question
     if state["shall_improve_question"]:
         better_question = question_rewriter.invoke({"question": state["question"]})
         print("---TRANSFORM QUERY---")
-        print("Better Question: ", better_question)
-        state["question"] = better_question
-    return {"question": state["question"]}
+        state["question"] = better_question.question
+        state["question_en"] = better_question.question_en
+        print("Better Question: ", state["question"])
+        if state["question_en"] != state["question"]:
+            print("Better Question (English): ", state["question_en"])
+    return {"question": state["question"], "question_en": state["question_en"]}
 
 
 def formulate_query(state: GraphState):
@@ -120,11 +131,7 @@ def formulate_query(state: GraphState):
     ### Convert question into search query
     from prompts import planning_agent_prompt
 
-    # LLM
-    if False:  # run_local == "Yes":
-        llm = ChatOllama(model=local_llm, temperature=0)
-    else:
-        llm = ChatOpenAI(model="gpt-4o")
+    llm = get_chatbot(state["llm"])
 
     # Prompt
     create_search_prompt = ChatPromptTemplate.from_messages(
@@ -158,13 +165,10 @@ class SearchQuery(BaseModel):
 
 def generate_search_query(state: GraphState):
     from prompts import generate_searches_prompt
-    from langcodes import Language
 
-    # LLM
-    if False:  # run_local == "Yes":
-        llm = ChatOllama(model=local_llm, temperature=0, format="json")
-    else:
-        llm = ChatOpenAI(model="gpt-4o")
+    llm = get_chatbot(
+        state["llm"], model_kwargs={"response_format": {"type": "json_object"}}
+    )
 
     parser = PydanticOutputParser(pydantic_object=SearchQuery)
 
@@ -185,10 +189,12 @@ def generate_search_query(state: GraphState):
     )
 
     state["search_query"] = extract_search.query
+    state["search_query_en"] = extract_search.query_en
     print("Search Query: ", state["search_query"])
-    print("Search Query (English): ", extract_search.query_en)
+    if state["search_query_en"] != state["search_query"]:
+        print("Search Query (English): ", state["search_query_en"])
 
-    return {"search_query": state["search_query"]}
+    return {"search_query": state["search_query"], "search_query_en": state["search_query_en"]}
 
 
 def retrieve(state: GraphState):
@@ -205,13 +211,16 @@ def retrieve(state: GraphState):
     db = state["db"]
 
     # Retrieval
-    retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 25})
+    retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 100})
     documents = retriever.invoke(state["search_query"])
     if state["rag_filter"] is not None:
-        documents = [doc for doc in documents if state["rag_filter"] in doc.metadata["source"]]
+        documents = [
+            doc for doc in documents if state["rag_filter"] in doc.metadata["source"]
+        ]
     state["documents"] = documents
     print("Retrieved Documents: ", [doc.metadata["id"] for doc in documents])
     return {"documents": documents}
+
 
 def rerank_docs(state: GraphState):
     """
@@ -232,10 +241,19 @@ def rerank_docs(state: GraphState):
     import cohere
 
     co = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
-    reranked_results = co.rerank(model="rerank-multilingual-v3.0", query=question, documents=[doc.page_content for doc in documents])
-    state["documents"] = [documents[docIndex.index] for docIndex in reranked_results.results if docIndex.relevance_score > 0.05]
+    reranked_results = co.rerank(
+        model="rerank-multilingual-v3.0",
+        query=question,
+        documents=[doc.page_content for doc in documents],
+    )
+    state["documents"] = [
+        documents[docIndex.index]
+        for docIndex in reranked_results.results
+        if docIndex.relevance_score > 0.05
+    ]
     print("Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]])
     return {"documents": state["documents"]}
+
 
 def grade_documents(state: GraphState):
     """
@@ -252,14 +270,10 @@ def grade_documents(state: GraphState):
     question = state["question"]
     documents = state["documents"]
 
-    if local_llm:
-        llm = ChatOpenAI(
-            model="gpt-4o",
-            temperature=0,
-            model_kwargs={"response_format": {"type": "json_object"}},
-        )
-    else:
-        llm = ChatOllama(model=local_llm, format="json", temperature=0)
+    llm = get_chatbot(
+        llm=state["llm"],
+        model_kwargs={"response_format": {"type": "json_object"}},
+    )
 
     prompt = PromptTemplate(
         template="""You are a grader assessing relevance of a retrieved document to a user question. \n
@@ -312,6 +326,8 @@ def web_search(state: GraphState):
     print("---WEB SEARCH---")
     search_query = state["search_query"]
     print("Search Query: ", search_query)
+    if state["search_query_en"] != state["search_query"]:
+        print("Search Query (en): ", state["search_query_en"])
     documents = state["documents"] or []
 
     # Web search
@@ -335,7 +351,9 @@ def web_search(state: GraphState):
             for doc in docs
         ]
     elif search_tool == "baidu":
-        search = BaiduSearch({"q": search_query, "api_key": os.getenv("SERPAPI_API_KEY")})
+        search = BaiduSearch(
+            {"q": search_query, "api_key": os.getenv("SERPAPI_API_KEY")}
+        )
         docs = search.get_dict()["organic_results"]
         web_results = [
             Document(
@@ -366,8 +384,7 @@ def crawl_or_not(doc: Document, question: str):
         }
     """
 
-    llm = ChatOpenAI(model="gpt-4o")
-    # llm = ChatOllama(model=local_llm, temperature=0, format="json")
+    llm = get_chatbot()
 
     class CrawlDecision(BaseModel):
         crawl: bool = Field(description="Whether the web page should be crawled")
@@ -501,8 +518,6 @@ def decide_to_rerank(state):
         return "no_rerank"
 
 
-
-
 def ask_user_for_feedback(state):
     """
     Asks the user if they are happy with the generated answer or if we should search the web.
@@ -523,6 +538,7 @@ def ask_user_for_feedback(state):
         "generation": state["generation"],
     }
 
+
 def decide_to_generate(state: GraphState):
     """
     Determines whether to generate an answer, or skip to web search.
@@ -540,6 +556,7 @@ def decide_to_generate(state: GraphState):
         # Change initial_generation to True for next cycle
         state["initial_generation"] = True
         return "no_generate"
+
 
 def decide_to_search(state):
     """
@@ -573,7 +590,6 @@ def generate(state: GraphState):
     from prompts import generate_prompt
 
     print("---GENERATE---")
-    question = state["question"]
     documents = state["documents"]
 
     # Get length of document tokens, and filter so that total tokens is less than 30,000
@@ -582,16 +598,16 @@ def generate(state: GraphState):
         < MAX_TOKEN_LENGTH
     ].tolist()
 
-    prompt = PromptTemplate(
-        template=generate_prompt,
-        input_variables=["question", "context"],
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", generate_prompt),
+            ("human", "Question: {question}"),
+            ("human", "Context:\n\n{context}"),
+            ("human", "A reminder of the question you should answer: {question}\n\nRemember to return the answer in English only.")
+        ]
     )
 
-    # LLM
-    if run_local:
-        llm = ChatOllama(model=local_llm, temperature=0)
-    else:
-        llm = ChatOpenAI(model="gpt-4o")
+    llm = get_chatbot(state["llm"])
 
     # Chain
     rag_chain = prompt | llm | StrOutputParser()
@@ -611,7 +627,7 @@ def generate(state: GraphState):
         print("Reduced Length: ", len(context), len(enc.encode(context)))
 
     # RAG generation
-    generation = rag_chain.invoke({"context": context, "question": question})
+    generation = rag_chain.invoke({"context": context, "question": state["question_en"]})
 
     state["generation"] = generation
     state["documents"] = documents
