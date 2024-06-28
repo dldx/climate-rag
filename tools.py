@@ -1,6 +1,6 @@
 
 import os
-from typing import List
+from typing import List, Sequence
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.document_loaders import FireCrawlLoader
 import shutil
@@ -161,7 +161,7 @@ def format_docs(docs):
 
 def get_vector_store():
     import chromadb
-    client = chromadb.HttpClient(host='localhost', port=8000)
+    client = chromadb.HttpClient(host='localhost', port=8150)
     embedding_function = get_embedding_function()
 
     db = Chroma(client=client, collection_name="langchain", embedding_function=embedding_function)
@@ -262,3 +262,29 @@ def calculate_chunk_ids(chunks):
         chunk.metadata["id"] = chunk_id
 
     return chunks
+
+from schemas import SearchQuery
+
+def _unique_documents(documents: Sequence[Document]) -> List[Document]:
+    return [doc for i, doc in enumerate(documents) if doc not in documents[:i]]
+
+def retrieve_multiple_queries(queries: List[SearchQuery], retriever, k: int = -1):
+    """Run all LLM generated queries on retriever.
+
+    Args:
+        queries: query list
+
+    Returns:
+        List of retrieved Documents
+    """
+    documents = []
+    for query in queries:
+        docs = retriever.invoke(
+            query.query
+        )
+        documents.extend(docs)
+
+    unique_documents = _unique_documents(documents)[:k]
+
+
+    return unique_documents

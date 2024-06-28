@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from schemas import SearchQuery, SearchQueries
 from typing import Any, List, Literal
 from langchain.schema import Document
 from typing_extensions import TypedDict
@@ -42,9 +43,7 @@ class GraphState(TypedDict):
     llm: Literal["gpt-4o", "mistral", "claude"]
     question: str
     question_en: str
-    search_prompts: str
-    search_query: str
-    search_query_en: str
+    search_prompts: List[SearchQuery]
     generation: str
     web_search: str
     web_search_completed: bool
@@ -58,6 +57,8 @@ class GraphState(TypedDict):
     search_tool: Literal["serper", "tavily", "baidu"]
     language: Literal["en", "zh", "vi"]
     initial_generation: bool
+    history: List[Any]
+    mode: Literal["gui", "cli"]
 
 
 def get_current_utc_datetime():
@@ -115,6 +116,11 @@ def improve_question(state: GraphState):
     return {"question": state["question"], "question_en": state["question_en"]}
 
 
+from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain_core.output_parsers import PydanticOutputParser
+
+
+
 def formulate_query(state: GraphState):
     """
     Formulate a query for RAG and web search based on the user question.
@@ -131,36 +137,35 @@ def formulate_query(state: GraphState):
     ### Convert question into search query
     from prompts import planning_agent_prompt
 
-    llm = get_chatbot(state["llm"])
+    llm = get_chatbot(
+        state["llm"], model_kwargs={"response_format": {"type": "json_object"}}
+    )
+
+    parser = PydanticOutputParser(pydantic_object=SearchQueries)
 
     # Prompt
-    create_search_prompt = ChatPromptTemplate.from_messages(
+    create_search_prompts = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                planning_agent_prompt.format(
-                    plan=None, feedback=None, datetime=get_current_utc_datetime()
-                ),
+                planning_agent_prompt,
             ),
             ("human", "{question}"),
         ]
+    ).partial(
+        response_format=parser.get_format_instructions(),
+                    plan=None, feedback=None, datetime=get_current_utc_datetime(),
+                    language=Language.get(state["language"]).display_name(),
     )
 
-    search_prompt_creator = create_search_prompt | llm | StrOutputParser()
-    search_prompt = search_prompt_creator.invoke({"question": question})
+    search_prompt_creator = create_search_prompts | llm | parser
+    search_prompts = search_prompt_creator.invoke({"question": question})
 
-    state["search_prompts"] = search_prompt
+    state["search_prompts"] = search_prompts.queries
 
-    return {"search_prompts": search_prompt}
-
-
-from langchain_core.pydantic_v1 import BaseModel, Field
-from langchain_core.output_parsers import PydanticOutputParser
+    return {"search_prompts": state["search_prompts"]}
 
 
-class SearchQuery(BaseModel):
-    query: str = Field(description="The search query to be executed")
-    query_en: str = Field(description="The search query in English")
 
 
 def generate_search_query(state: GraphState):
@@ -208,14 +213,19 @@ def retrieve(state: GraphState):
         state (dict): New key added to state, documents, that contains retrieved documents
     """
     print("---RETRIEVE---")
+    print("Search Queries: ", state["search_prompts"])
     db = state["db"]
 
-    # Retrieval
-    retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 100})
-    documents = retriever.invoke(state["search_query"])
-    if state["rag_filter"] is not None:
+    ## Retrieve docs
+    # 100 docs max
+    k = 100
+    retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": k})
+    # We will retrieve docs based on many queries
+    from tools import retrieve_multiple_queries
+    documents = retrieve_multiple_queries(state["search_prompts"], retriever=retriever, k=k)
+    if state.get("rag_filter", None) is not None:
         documents = [
-            doc for doc in documents if state["rag_filter"] in doc.metadata["source"]
+            doc for doc in documents if state.get("rag_filter") in doc.metadata["source"]
         ]
     state["documents"] = documents
     print("Retrieved Documents: ", [doc.metadata["id"] for doc in documents])
@@ -324,16 +334,17 @@ def web_search(state: GraphState):
     search_tool = state["search_tool"]  # "serper" or "tavily" or "baidu"
 
     print("---WEB SEARCH---")
-    search_query = state["search_query"]
-    print("Search Query: ", search_query)
-    if state["search_query_en"] != state["search_query"]:
-        print("Search Query (en): ", state["search_query_en"])
+    # Use only first search query to run web search
+    search_query = state["search_prompts"][0]
+    print("Search Query: ", search_query.query)
+    if search_query.query != search_query.query_en:
+        print("Search Query (en): ", search_query.query_en)
     documents = state["documents"] or []
 
     # Web search
     if search_tool == "serper":
         search = GoogleSerperAPIWrapper(gl="gb")
-        docs = search.results(search_query)["organic"]
+        docs = search.results(search_query.query)["organic"]
         web_results = [
             Document(
                 page_content=doc["snippet"],
@@ -342,7 +353,7 @@ def web_search(state: GraphState):
             for doc in docs
         ]
     elif search_tool == "tavily":
-        docs = web_search_tool.invoke({"query": search_query})
+        docs = web_search_tool.invoke({"query": search_query.query})
         web_results = [
             Document(
                 page_content=doc["content"],
@@ -352,7 +363,7 @@ def web_search(state: GraphState):
         ]
     elif search_tool == "baidu":
         search = BaiduSearch(
-            {"q": search_query, "api_key": os.getenv("SERPAPI_API_KEY")}
+            {"q": search_query.query, "api_key": os.getenv("SERPAPI_API_KEY")}
         )
         docs = search.get_dict()["organic_results"]
         web_results = [
@@ -364,7 +375,7 @@ def web_search(state: GraphState):
         ]
     documents += web_results[:10]
 
-    return {"documents": documents}
+    return {"documents": documents, "search_prompts": state["search_prompts"] }
 
 
 def crawl_or_not(doc: Document, question: str):
@@ -529,7 +540,10 @@ def ask_user_for_feedback(state):
         str: Binary decision for next node to call
 
     """
-    user_decision = input("Are you happy with the answer? (y/n)").lower()[0] == "y"
+    if state["mode"] == "gui":
+        user_decision = True
+    else:
+        user_decision = input("Are you happy with the answer? (y/n)").lower()[0] == "y"
     state["user_happy_with_answer"] = user_decision
 
     return {
@@ -632,4 +646,4 @@ def generate(state: GraphState):
     state["generation"] = generation
     state["documents"] = documents
 
-    return {"generation": generation, "documents": documents}
+    return state

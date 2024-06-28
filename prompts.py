@@ -6,18 +6,17 @@ Here is today's date and time (Timezone: UTC): `{datetime}`
 
 Return the input in {language} to find the best answers and also in English for reference.
 
-The json object should have the following format:
 {response_format}
 """
 
 planning_agent_prompt = """
 You are an AI planning agent working with an integration agent.
 
-Your job is to come up with the searches you can use in a RAG database or search engine to answer the query.
+Your job is to come up with five difference searche queries you can use in a RAG database or search engine to answer the query.
 
-You must not answer the query, only generate the questions.
+By generating multiple perspectives on the user question, your goal is to help the user overcome some of the limitations of the distance-based similarity search.
 
-If there are multiple searches, highlight the single most important search.
+You must not answer the query, only generate the questions with the most important question first.
 
 Do not include any search engine specific syntax in your response, only the search terms.
 
@@ -33,6 +32,12 @@ For example, if the feedback is that the plan is missing a key element, you shou
 
 You should be aware of today's date to help you answer questions that require current information.
 Here is today's date and time (Timezone: UTC): `{datetime}`
+
+Return the input in {language} to find the best answers and also in English for reference.
+
+{response_format}
+
+Only return JSON, and no other text.
 """
 
 integration_agent_prompt = """
@@ -120,7 +125,6 @@ Here is today's date and time (Timezone: UTC): `{datetime}`
 
 Return the input in {language} to find the best answers and also in English for reference.
 
-The json object should have the following format:
 {response_format}
 """
 
@@ -138,7 +142,6 @@ Add only the top 10 urls that are relevant to answering the question.
 
 Return a json object that returns true if the web page should be crawled, otherwise return false.
 
-The json object should have the following format:
 {response_format}
 """
 

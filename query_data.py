@@ -1,7 +1,8 @@
 import argparse
 import os
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Tuple
 from dotenv import load_dotenv
+from agents import GraphState
 from tools import get_vector_store
 import langcodes
 
@@ -97,7 +98,7 @@ def main():
     if len(args.get_documents) > 0:
         get_documents_from_db(db, args.get_documents)
     else:
-        run_query(
+        for key, value in run_query(
             query_text,
             db,
             llm=args.llm,
@@ -108,7 +109,8 @@ def main():
             do_crawl=args.crawl,
             language=args.language,
             initial_generation=args.initial_generation,
-        )
+        ):
+            pass
 
 
 def get_documents_from_db(db, doc_ids: List[str]):
@@ -144,6 +146,8 @@ def run_query(
     do_crawl: Optional[bool] = True,
     language: Literal["en", "zh", "vi"] = "en",
     initial_generation: Optional[bool] = True,
+    history: Optional[List] = [],
+    mode: Optional[Literal["gui", "cli"]] = "cli",
 ):
     from graph import create_graph
 
@@ -161,6 +165,8 @@ def run_query(
         "do_rerank": do_rerank,
         "language": language,
         "initial_generation": initial_generation,
+        "history": history,
+        "mode": mode,
     }
     for output in app.stream(inputs):
         for key, value in output.items():
@@ -189,7 +195,7 @@ def run_query(
                 )
         print("\n---\n")
 
-    return value
+        yield key, value
 
 
 if __name__ == "__main__":

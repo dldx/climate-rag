@@ -27,7 +27,7 @@ def create_graph():
     # Define the nodes
     workflow.add_node("improve_question", improve_question)  # transform_query
     workflow.add_node("formulate_query", formulate_query)  # formulate query
-    workflow.add_node("generate_search_query", generate_search_query)  # generate search query
+    # workflow.add_node("generate_search_query", generate_search_query)  # generate search query
     workflow.add_node("retrieve_from_database", retrieve)  # retrieve
     workflow.add_node("rerank_documents", rerank_docs)  # rerank documents
     # workflow.add_node("grade_documents", grade_documents)  # grade documents
@@ -39,8 +39,8 @@ def create_graph():
     # Build graph
     workflow.set_entry_point("improve_question")
     workflow.add_edge("improve_question", "formulate_query")
-    workflow.add_edge("formulate_query", "generate_search_query")
-    workflow.add_conditional_edges("generate_search_query",
+    # workflow.add_edge("formulate_query", "generate_search_query")
+    workflow.add_conditional_edges("formulate_query",
                                   decide_to_generate,
                                   {
                                     "generate":  "retrieve_from_database",

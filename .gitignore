@@ -7,6 +7,7 @@ old_data
 smaller_chunks
 log.txt
 .git-old-history
+*.ipynb
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,linux
@@ -199,3 +200,5 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python,linux
+crag.ipynb
+crag.ipynb
