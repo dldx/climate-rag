@@ -66,9 +66,11 @@ def get_current_utc_datetime():
     current_time_utc = now_utc.strftime("%Y-%m-%d %H:%M:%S %Z")
     return current_time_utc
 
+
 class ImprovedQuestion(BaseModel):
     question: str = Field(description="The improved question")
     question_en: str = Field(description="The improved question in English")
+
 
 def improve_question(state: GraphState):
     """
@@ -120,7 +122,6 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 
 
-
 def formulate_query(state: GraphState):
     """
     Formulate a query for RAG and web search based on the user question.
@@ -154,8 +155,10 @@ def formulate_query(state: GraphState):
         ]
     ).partial(
         response_format=parser.get_format_instructions(),
-                    plan=None, feedback=None, datetime=get_current_utc_datetime(),
-                    language=Language.get(state["language"]).display_name(),
+        plan=None,
+        feedback=None,
+        datetime=get_current_utc_datetime(),
+        language=Language.get(state["language"]).display_name(),
     )
 
     search_prompt_creator = create_search_prompts | llm | parser
@@ -164,8 +167,6 @@ def formulate_query(state: GraphState):
     state["search_prompts"] = search_prompts.queries
 
     return {"search_prompts": state["search_prompts"]}
-
-
 
 
 def generate_search_query(state: GraphState):
@@ -199,7 +200,10 @@ def generate_search_query(state: GraphState):
     if state["search_query_en"] != state["search_query"]:
         print("Search Query (English): ", state["search_query_en"])
 
-    return {"search_query": state["search_query"], "search_query_en": state["search_query_en"]}
+    return {
+        "search_query": state["search_query"],
+        "search_query_en": state["search_query_en"],
+    }
 
 
 def retrieve(state: GraphState):
@@ -219,14 +223,31 @@ def retrieve(state: GraphState):
     ## Retrieve docs
     # 100 docs max
     k = 100
-    retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": k})
+    # List of source documents that we want to include
+    rag_filter = state.get("rag_filter", None)
+    if rag_filter is not None:
+        source_list = list(
+            set(
+                [
+                    doc["source"]
+                    for doc in db.get()["metadatas"]
+                    if rag_filter in doc["source"]
+                ]
+            )
+        )
+        retriever = db.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": k, "filter": {"source": {"$in": source_list}}},
+        )
+    else:
+        retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": k})
     # We will retrieve docs based on many queries
     from tools import retrieve_multiple_queries
-    documents = retrieve_multiple_queries(state["search_prompts"], retriever=retriever, k=k)
-    if state.get("rag_filter", None) is not None:
-        documents = [
-            doc for doc in documents if state.get("rag_filter") in doc.metadata["source"]
-        ]
+
+    documents = retrieve_multiple_queries(
+        [(query.query_en if state["language"] == "en" else query.query) for query in state["search_prompts"]], retriever=retriever, k=k
+    )
+
     state["documents"] = documents
     print("Retrieved Documents: ", [doc.metadata["id"] for doc in documents])
     return {"documents": documents}
@@ -335,16 +356,21 @@ def web_search(state: GraphState):
 
     print("---WEB SEARCH---")
     # Use only first search query to run web search
-    search_query = state["search_prompts"][0]
-    print("Search Query: ", search_query.query)
-    if search_query.query != search_query.query_en:
-        print("Search Query (en): ", search_query.query_en)
+    if state["language"] == "en":
+        search_query = state["search_prompts"][0].query_en
+    else:
+        search_query = state["search_prompts"][0].query
+
+    print("Search Query: ", search_query)
+    if state["language"] != "en":
+        print("Search Query (en): ", state["search_prompts"][0].query_en)
+
     documents = state["documents"] or []
 
     # Web search
     if search_tool == "serper":
         search = GoogleSerperAPIWrapper(gl="gb")
-        docs = search.results(search_query.query)["organic"]
+        docs = search.results(search_query)["organic"]
         web_results = [
             Document(
                 page_content=doc["snippet"],
@@ -353,7 +379,7 @@ def web_search(state: GraphState):
             for doc in docs
         ]
     elif search_tool == "tavily":
-        docs = web_search_tool.invoke({"query": search_query.query})
+        docs = web_search_tool.invoke({"query": search_query})
         web_results = [
             Document(
                 page_content=doc["content"],
@@ -363,7 +389,7 @@ def web_search(state: GraphState):
         ]
     elif search_tool == "baidu":
         search = BaiduSearch(
-            {"q": search_query.query, "api_key": os.getenv("SERPAPI_API_KEY")}
+            {"q": search_query, "api_key": os.getenv("SERPAPI_API_KEY")}
         )
         docs = search.get_dict()["organic_results"]
         web_results = [
@@ -375,7 +401,7 @@ def web_search(state: GraphState):
         ]
     documents += web_results[:10]
 
-    return {"documents": documents, "search_prompts": state["search_prompts"] }
+    return {"documents": documents, "search_prompts": state["search_prompts"]}
 
 
 def crawl_or_not(doc: Document, question: str):
@@ -617,7 +643,10 @@ def generate(state: GraphState):
             ("system", generate_prompt),
             ("human", "Question: {question}"),
             ("human", "Context:\n\n{context}"),
-            ("human", "A reminder of the question you should answer: {question}\n\nRemember to return the answer in English only.")
+            (
+                "human",
+                "A reminder of the question you should answer: {question}\n\nRemember to return the answer in English only.",
+            ),
         ]
     )
 
@@ -641,7 +670,9 @@ def generate(state: GraphState):
         print("Reduced Length: ", len(context), len(enc.encode(context)))
 
     # RAG generation
-    generation = rag_chain.invoke({"context": context, "question": state["question_en"]})
+    generation = rag_chain.invoke(
+        {"context": context, "question": state["question_en"]}
+    )
 
     state["generation"] = generation
     state["documents"] = documents

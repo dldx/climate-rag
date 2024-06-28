@@ -268,7 +268,7 @@ from schemas import SearchQuery
 def _unique_documents(documents: Sequence[Document]) -> List[Document]:
     return [doc for i, doc in enumerate(documents) if doc not in documents[:i]]
 
-def retrieve_multiple_queries(queries: List[SearchQuery], retriever, k: int = -1):
+def retrieve_multiple_queries(queries: List[str], retriever, k: int = -1):
     """Run all LLM generated queries on retriever.
 
     Args:
@@ -280,7 +280,7 @@ def retrieve_multiple_queries(queries: List[SearchQuery], retriever, k: int = -1
     documents = []
     for query in queries:
         docs = retriever.invoke(
-            query.query
+            query
         )
         documents.extend(docs)
 

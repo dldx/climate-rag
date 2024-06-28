@@ -2,6 +2,7 @@ import argparse
 import os
 from typing import List, Literal, Optional, Tuple
 from dotenv import load_dotenv
+import pandas as pd
 from agents import GraphState
 from tools import get_vector_store
 import langcodes
@@ -33,7 +34,7 @@ def main():
         "query_text",
         type=str,
         help="The query text.",
-        nargs="?" if "--get-documents" in sys.argv else 1,
+        nargs="?" if "--get-documents" in sys.argv or "--get-source" in sys.argv else 1,
     )
     parser.add_argument(
         "--rag-filter", type=str, help="Optional rag filter to use", default=""
@@ -87,16 +88,27 @@ def main():
         default=[],
     )
 
+    parser.add_argument(
+        "--get-source",
+        help="Get documents by their source",
+        type=str,
+        default=None,
+    )
+
     parser.set_defaults(
         rerank=True, crawl=True, improve_question=True, initial_generation=True
     )
 
     args = parser.parse_args()
-    query_text = args.query_text[0] if type(args.query_text) == list else args.query_text
+    query_text = (
+        args.query_text[0] if type(args.query_text) == list else args.query_text
+    )
 
     db = get_vector_store()
     if len(args.get_documents) > 0:
         get_documents_from_db(db, args.get_documents)
+    elif args.get_source is not None:
+        query_source_documents_by_metadata(db, "source", args.get_source)
     else:
         for key, value in run_query(
             query_text,
@@ -133,6 +145,44 @@ def get_documents_from_db(db, doc_ids: List[str]):
 """
             )
         )
+
+
+def query_source_documents_by_metadata(db, key: Literal["source"], value: str):
+    df = (get_all_documents_as_df(db).loc[lambda x: x["source"].str.contains(value)]
+        .to_dict(orient="records"))
+    # Return df as list of rows
+    for row in df:
+        pretty_print(
+            Markdown(
+                f"""
+---
+# {row["source"]}
+{row["page_content"]}
+"""
+            )
+        )
+
+
+
+
+def get_all_documents_as_df(db) -> pd.DataFrame:
+    import pandas as pd
+
+    raw_data_df = (
+        pd.DataFrame.from_records(db.get()["metadatas"])
+        .assign(chunk_no=lambda x: x["id"].str.split(":").str[-1].astype(int))
+        .reset_index()
+        .sort_values(["source", "chunk_no"], ascending=True)
+        .set_index("source")[["index", "id", "chunk_no"]]
+        .join(pd.DataFrame(dict(page_content=db.get()["documents"])), on="index")
+        .drop(columns=["index", "id", "chunk_no"])
+        .reset_index()
+        .groupby("source")["page_content"]
+        .apply("\n\n".join)
+        .reset_index()
+        .assign(page_length=lambda x: x["page_content"].str.len())
+    )
+    return raw_data_df
 
 
 def run_query(
