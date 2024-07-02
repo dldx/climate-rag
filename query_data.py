@@ -34,7 +34,7 @@ def main():
         "query_text",
         type=str,
         help="The query text.",
-        nargs="?" if "--get-documents" in sys.argv or "--get-source" in sys.argv else 1,
+        nargs="?" if "--get-docs" in sys.argv or "--get-source-doc" in sys.argv else 1,
     )
     parser.add_argument(
         "--rag-filter", type=str, help="Optional rag filter to use", default=""
@@ -82,14 +82,14 @@ def main():
     )
 
     parser.add_argument(
-        "--get-documents",
+        "--get-docs",
         help="Get documents by their IDs",
         nargs="+",
         default=[],
     )
 
     parser.add_argument(
-        "--get-source",
+        "--get-source-doc",
         help="Get documents by their source",
         type=str,
         default=None,
@@ -105,10 +105,10 @@ def main():
     )
 
     db = get_vector_store()
-    if len(args.get_documents) > 0:
-        get_documents_from_db(db, args.get_documents)
-    elif args.get_source is not None:
-        query_source_documents_by_metadata(db, "source", args.get_source)
+    if len(args.get_docs) > 0:
+        get_documents_from_db(db, args.get_docs)
+    elif args.get_source_doc is not None:
+        query_source_documents_by_metadata(db, "source", args.get_source_doc)
     else:
         for key, value in run_query(
             query_text,
@@ -147,20 +147,23 @@ def get_documents_from_db(db, doc_ids: List[str]):
         )
 
 
-def query_source_documents_by_metadata(db, key: Literal["source"], value: str):
+def query_source_documents_by_metadata(db, key: Literal["source"], value: str, print=True):
     df = (get_all_documents_as_df(db).loc[lambda x: x["source"].str.contains(value)]
-        .to_dict(orient="records"))
-    # Return df as list of rows
-    for row in df:
-        pretty_print(
-            Markdown(
-                f"""
----
-# {row["source"]}
-{row["page_content"]}
-"""
-            )
         )
+    if print:
+        # Return df as list of rows
+        for row in df.to_dict(orient="records"):
+            pretty_print(
+                Markdown(
+                    f"""
+    ---
+    # {row["source"]}
+    {row["page_content"]}
+    """
+                )
+            )
+
+    return df
 
 
 
@@ -226,7 +229,7 @@ def run_query(
             if key == "generate":
                 pretty_print(
                     Markdown(
-                        f"""# {question}\n\n"""
+                        f"""# {value["initial_question"]}\n\n"""
                         + value["generation"]
                         + "\n\n**Sources:**\n\n"
                         + "\n\n".join(

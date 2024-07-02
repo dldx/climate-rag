@@ -41,9 +41,12 @@ class GraphState(TypedDict):
     """
 
     llm: Literal["gpt-4o", "mistral", "claude"]
+    initial_question: str
     question: str
     question_en: str
     search_prompts: List[SearchQuery]
+    search_query: str
+    search_query_en: str
     generation: str
     web_search: str
     web_search_completed: bool
@@ -72,7 +75,7 @@ class ImprovedQuestion(BaseModel):
     question_en: str = Field(description="The improved question in English")
 
 
-def improve_question(state: GraphState):
+def improve_question(state: GraphState) -> GraphState:
     """
     Transform the query to produce a better question.
 
@@ -106,6 +109,7 @@ def improve_question(state: GraphState):
 
     question_rewriter = re_write_prompt | llm | parser
 
+    state["initial_question"] = state["question"]
     # Re-write question
     if state["shall_improve_question"]:
         better_question = question_rewriter.invoke({"question": state["question"]})
@@ -115,14 +119,18 @@ def improve_question(state: GraphState):
         print("Better Question: ", state["question"])
         if state["question_en"] != state["question"]:
             print("Better Question (English): ", state["question_en"])
-    return {"question": state["question"], "question_en": state["question_en"]}
+    return {
+        "question": state["question"],
+        "question_en": state["question_en"],
+        "initial_question": state["initial_question"],
+    }
 
 
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 
 
-def formulate_query(state: GraphState):
+def formulate_query(state: GraphState) -> GraphState:
     """
     Formulate a query for RAG and web search based on the user question.
 
@@ -169,7 +177,7 @@ def formulate_query(state: GraphState):
     return {"search_prompts": state["search_prompts"]}
 
 
-def generate_search_query(state: GraphState):
+def generate_search_query(state: GraphState) -> GraphState:
     from prompts import generate_searches_prompt
 
     llm = get_chatbot(
@@ -206,7 +214,7 @@ def generate_search_query(state: GraphState):
     }
 
 
-def retrieve(state: GraphState):
+def retrieve(state: GraphState) -> GraphState:
     """
     Retrieve documents
 
@@ -245,15 +253,20 @@ def retrieve(state: GraphState):
     from tools import retrieve_multiple_queries
 
     documents = retrieve_multiple_queries(
-        [(query.query_en if state["language"] == "en" else query.query) for query in state["search_prompts"]], retriever=retriever, k=k
+        [
+            (query.query_en if state["language"] == "en" else query.query)
+            for query in state["search_prompts"]
+        ],
+        retriever=retriever,
+        k=k,
     )
 
     state["documents"] = documents
     print("Retrieved Documents: ", [doc.metadata["id"] for doc in documents])
-    return {"documents": documents}
+    return {"documents": documents, "search_prompts": state["search_prompts"]}
 
 
-def rerank_docs(state: GraphState):
+def rerank_docs(state: GraphState) -> GraphState:
     """
     Rerank documents using Cohere API
 
@@ -286,7 +299,7 @@ def rerank_docs(state: GraphState):
     return {"documents": state["documents"]}
 
 
-def grade_documents(state: GraphState):
+def grade_documents(state: GraphState) -> GraphState:
     """
     Determines whether the retrieved documents are relevant to the question.
 
@@ -339,7 +352,7 @@ def grade_documents(state: GraphState):
     return state
 
 
-def web_search(state: GraphState):
+def web_search(state: GraphState) -> GraphState:
     """
     Web search based on the re-phrased question.
 
@@ -361,9 +374,9 @@ def web_search(state: GraphState):
     else:
         search_query = state["search_prompts"][0].query
 
-    print("Search Query: ", search_query)
+    print("Search query: ", search_query)
     if state["language"] != "en":
-        print("Search Query (en): ", state["search_prompts"][0].query_en)
+        print("Search query (en): ", state["search_prompts"][0].query_en)
 
     documents = state["documents"] or []
 
@@ -401,7 +414,12 @@ def web_search(state: GraphState):
         ]
     documents += web_results[:10]
 
-    return {"documents": documents, "search_prompts": state["search_prompts"]}
+    return {
+        "documents": documents,
+        "search_prompts": state["search_prompts"],
+        "search_query": search_query,
+        "search_query_en": state["search_prompts"][0].query_en,
+    }
 
 
 def crawl_or_not(doc: Document, question: str):
@@ -475,7 +493,7 @@ def crawl_or_not(doc: Document, question: str):
     return crawl_decision
 
 
-def add_urls_to_database(state: GraphState):
+def add_urls_to_database(state: GraphState) -> GraphState:
     """
     Add web search results to the database.
 
@@ -538,7 +556,7 @@ def add_urls_to_database(state: GraphState):
 
 
 ### Edges
-def decide_to_rerank(state):
+def decide_to_rerank(state: GraphState) -> GraphState:
     """
     Determines whether to rerank documents
 
@@ -631,6 +649,13 @@ def generate(state: GraphState):
 
     print("---GENERATE---")
     documents = state["documents"]
+
+    if len(documents) == 0:
+        state["generation"] = (
+            """No relevant documents found to generate answer from!"""
+            + (" Check your RAG filters are correct!" if state["rag_filter"] else "")
+        )
+        return state
 
     # Get length of document tokens, and filter so that total tokens is less than 30,000
     documents = np.array(documents)[

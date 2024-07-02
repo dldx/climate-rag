@@ -42,6 +42,8 @@ def check_page_content_for_errors(page_content: str):
         return "Empty or minimal page content"
     elif bool(re.search("(404*.not found)|(page not found)|(page cannot be found)|(HTTP404)|(File or directory not found.)|(Page You Requested Was Not Found)|(Error: Page.goto:)|(404 error)|(404 Not Found)|(404 Page Not Found)|(Error 404)|(404 - File or directory not found)|(HTTP Error 404)|(Not Found - 404)|(404 - Not Found)|(404 - Page Not Found)|(Error 404 - Not Found)|(404 - File Not Found)|(HTTP 404 - Not Found)|(404 - Resource Not Found)", page_content, re.IGNORECASE)):
         return "Page not found in content"
+    elif ("Verifying you are human." in page_content):
+        return "Page requires human verification"
     else:
         return None
 
@@ -76,7 +78,7 @@ def add_urls_to_db(urls: List[str], db):
                 doc.metadata["date_added"] = datetime.now().isoformat()
             page_errors = check_page_content_for_errors(webdocs[0].page_content)
             if page_errors:
-                print(f"Error loading {url}: {page_errors}")
+                print(f"[HtmlLoader] Error loading {url}: {page_errors}")
             else:
                 chunks = split_documents(webdocs)
                 add_to_chroma(db, chunks)
@@ -101,14 +103,14 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
 
                 page_errors = check_page_content_for_errors(webdocs[0].page_content)
                 if page_errors:
-                    print(f"Error loading {url}: {page_errors}")
+                    print(f"[Firecrawl] Error loading {url}: {page_errors}")
                 else:
                     webdocs = filter_complex_metadata(webdocs)
                     chunks = split_documents(webdocs)
                     add_to_chroma(db, chunks)
                     docs += webdocs
             except Exception as e:
-                print(f"Error loading {url}: {e}")
+                print(f"[Firecrawl] Error loading {url}: {e}")
                 if (("429" in str(e)) or ("402" in str(e))) and "pdf" not in url:
                     # use local chrome loader instead
                     docs += add_urls_to_db_chrome([url], db)
@@ -141,7 +143,7 @@ def add_urls_to_db_chrome(urls: List[str], db):
     for doc in docs_transformed:
         page_errors = check_page_content_for_errors(doc.page_content)
         if page_errors:
-            print(f"Error loading {doc.metadata.get('source')}: {page_errors}")
+            print(f"[Chrome] Error loading {doc.metadata.get('source')}: {page_errors}")
         else:
             chunks = split_documents([doc])
             add_to_chroma(db, chunks)
