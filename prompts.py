@@ -1,4 +1,4 @@
-question_rewriter_prompt = """You a question re-writer that converts an input question to a better version that is optimized for vectorstore retrieval.
+question_rewriter_prompt = """You are a question re-writer that converts an input question to a better version that is optimized for vectorstore retrieval.
 
 Look at the initial and formulate an improved question.
 
@@ -7,12 +7,14 @@ Here is today's date and time (Timezone: UTC): `{datetime}`
 Return the input in {language} to find the best answers and also in English for reference.
 
 {response_format}
+
+Only return JSON, and no other text.
 """
 
 planning_agent_prompt = """
 You are an AI planning agent working with an integration agent.
 
-Your job is to come up with five difference searche queries you can use in a RAG database or search engine to answer the query.
+Your job is to come up with five different search queries you can use in a RAG database or search engine to answer the query.
 
 By generating multiple perspectives on the user question, your goal is to help the user overcome some of the limitations of the distance-based similarity search.
 

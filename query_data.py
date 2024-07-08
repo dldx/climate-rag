@@ -6,6 +6,7 @@ import pandas as pd
 from agents import GraphState
 from tools import get_vector_store
 import langcodes
+from cache import r
 
 
 load_dotenv()  # take environment variables from .env.
@@ -108,7 +109,7 @@ def main():
     if len(args.get_docs) > 0:
         get_documents_from_db(db, args.get_docs)
     elif args.get_source_doc is not None:
-        query_source_documents_by_metadata(db, "source", args.get_source_doc)
+        query_source_documents(db, args.get_source_doc)
     else:
         for key, value in run_query(
             query_text,
@@ -147,8 +148,29 @@ def get_documents_from_db(db, doc_ids: List[str]):
         )
 
 
-def query_source_documents_by_metadata(db, key: Literal["source"], value: str, print=True):
-    df = (get_all_documents_as_df(db).loc[lambda x: x["source"].str.contains(value)]
+def query_source_documents(db, source_uri: str, print=True) -> pd.DataFrame:
+    """
+    Query the database for documents with a specific metadata key-value pair. Currently only supports querying by source.
+
+    Args:
+        db: The database object
+        source_uri: The source URI to query for. eg. "*carbontracker.org*" for wildcard search or "https://carbontracker.org" for exact match
+        print: Whether to print the results
+
+    Returns:
+        pd.DataFrame: The documents that match the query
+    """
+    keys = r.keys(source_uri)
+    if len(keys) == 0:
+        df = pd.DataFrame(
+            columns=["source", "page_content", "raw_html", "date_added", "page_length"]
+        )
+    else:
+        df = pd.concat([pd.Series(r.hgetall(key)) for key in keys], axis=1).T.assign(
+            # Convert unix timestamp to datetime
+            date_added=lambda x: pd.to_datetime(
+                x["date_added"].astype(float), unit="s", errors="coerce"
+            ).dt.strftime("%Y-%m-%d"),
         )
     if print:
         # Return df as list of rows
@@ -166,8 +188,6 @@ def query_source_documents_by_metadata(db, key: Literal["source"], value: str, p
     return df
 
 
-
-
 def get_all_documents_as_df(db) -> pd.DataFrame:
     import pandas as pd
 
@@ -176,13 +196,18 @@ def get_all_documents_as_df(db) -> pd.DataFrame:
         .assign(chunk_no=lambda x: x["id"].str.split(":").str[-1].astype(int))
         .reset_index()
         .sort_values(["source", "chunk_no"], ascending=True)
-        .set_index("source")[["index", "id", "chunk_no"]]
+        .set_index("source")[["index", "id", "chunk_no", "date_added"]]
         .join(pd.DataFrame(dict(page_content=db.get()["documents"])), on="index")
         .drop(columns=["index", "id", "chunk_no"])
         .reset_index()
-        .groupby("source")["page_content"]
-        .apply("\n\n".join)
+        .groupby("source")[["page_content", "date_added"]]
+        .agg({"page_content": lambda x: "\n\n".join(x), "date_added": "first"})
         .reset_index()
+        .assign(
+            date_added=lambda x: (
+                x["date_added"].astype("datetime64[ns]").astype(int) / 1e9
+            ).astype(int)
+        )
         .assign(page_length=lambda x: x["page_content"].str.len())
     )
     return raw_data_df

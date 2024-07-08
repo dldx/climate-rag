@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from query_data import run_query
+from query_data import query_source_documents, run_query
 from tools import get_vector_store
 
 db = get_vector_store()
@@ -24,12 +24,11 @@ def climate_chat(
     if len(history) > 1:
         getting_feedback = history[-2][1] == "Are you happy with the answer? (y/n)"
         if getting_feedback:
-            if message.lower() == "y":
-                happy_with_answer = True
-            elif message.lower() == "n":
+            if message.lower() == "n":
                 happy_with_answer = False
             else:
-                yield "Please enter 'y' or 'n'", questions
+                happy_with_answer = True
+                getting_feedback = False
         if happy_with_answer:
             yield "Great! I'm glad I could help. What else would you like to know?", questions
 
@@ -130,7 +129,14 @@ with gr.Blocks(
                         value=True, label="Rerank documents?"
                     )
                     language_dropdown = gr.Dropdown(
-                        choices=[("English", "en"), ("Chinese", "zh"), ("Italian", "it"), ("Spanish", "es"), ("German", "de"), ("Vietnamese", "vi")],
+                        choices=[
+                            ("English", "en"),
+                            ("Chinese", "zh"),
+                            ("Italian", "it"),
+                            ("Spanish", "es"),
+                            ("German", "de"),
+                            ("Vietnamese", "vi"),
+                        ],
                         label="Language",
                         value="en",
                         filterable=True,
@@ -150,17 +156,24 @@ with gr.Blocks(
             new_file = gr.File(label="Upload documents", file_types=["pdf", "PDF"])
             with gr.Column():
                 url_input = gr.Textbox(placeholder="Enter a URL", show_label=False)
-                add_button = gr.Button(value="Add")
+                add_button = gr.Button(value="Add/View")
+                selected_source = gr.Markdown(height=200)
         with gr.Row():
             gr.Markdown("## Search through existing documents")
         # Search through documents in the vector database
         with gr.Row():
             search_input = gr.Textbox(placeholder="Search documents", show_label=False)
-            search_button = gr.Button(value="Search")
+            search_button = gr.Button(value="Search", visible=False)
         with gr.Row():
-            search_results_display = gr.Dataset(components=[gr.Textbox(visible=False), gr.Markdown(visible=False), gr.Number(visible=False)],
-                                                label="Documents retrieved",
-                                                headers=["Source", "Page contents", "Number of tokens"])
+            search_results_display = gr.Dataset(
+                components=[
+                    gr.Textbox(visible=False),
+                    gr.Textbox(visible=False),
+                    gr.Number(visible=False),
+                ],
+                label="Documents retrieved",
+                headers=["Source", "Date added", "Page length"],
+            )
 
     ### Define the logic
     ## Tab 1: Chat
@@ -230,11 +243,21 @@ with gr.Blocks(
     )
 
     ## Tab 2: Documents
+    # Search documents
     def search_documents(search_query):
-        from query_data import query_source_documents_by_metadata
-        search_results = query_source_documents_by_metadata(db, "source", search_query, print=False)
+        from query_data import query_source_documents
+
+        search_results = query_source_documents(
+            db, f"*{search_query}*", print=False
+        )[["source", "date_added", "page_length", "page_content"]]
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
+    search_input.change(
+        fn=search_documents,
+        inputs=[search_input],
+        outputs=[search_results_display],
+        queue=False,
+    )
     search_button.click(
         fn=search_documents,
         inputs=[search_input],
@@ -245,28 +268,41 @@ with gr.Blocks(
     # Add new documents
     def add_document(url):
         from tools import add_urls_to_db_firecrawl
+
         add_urls_to_db_firecrawl([url], db)
-        return url
+
+        # Retrieve source markdown
+        page_content = query_source_documents(db, f"*{url}*", print=False)["page_content"].iloc[0]
+        return page_content
 
     add_button.click(
         fn=add_document,
         inputs=[url_input],
-        outputs=[search_input],
+        outputs=[selected_source],
         queue=False,
-    ).then(fn=lambda: None, inputs=None, outputs=[url_input], queue=False).then(
-        search_documents,
-        [search_input],
-        [search_results_display],
     )
+    # .then(fn=lambda: None, inputs=None, outputs=[url_input], queue=False).then(
+    #     search_documents,
+    #     [search_input],
+    #     [search_results_display],
+    # )
 
     # Upload new document
     def upload_document(file):
         import requests
         from tools import add_urls_to_db_firecrawl
+
         filename = file.split("/")[-1]
-        response = requests.post(url='https://tmpfiles.org/api/v1/upload', files={"file": open(file, 'rb')})
+        response = requests.post(
+            url="https://tmpfiles.org/api/v1/upload", files={"file": open(file, "rb")}
+        )
         # Store filename with URL
-        dl_url = "https://tmpfiles.org/dl/" + response.json()["data"]["url"].replace("https://tmpfiles.org", "") + "#" + filename
+        dl_url = (
+            "https://tmpfiles.org/dl/"
+            + response.json()["data"]["url"].replace("https://tmpfiles.org", "")
+            + "#"
+            + filename
+        )
         add_urls_to_db_firecrawl([dl_url], db)
         return dl_url
 

@@ -1,4 +1,3 @@
-
 import os
 from typing import List, Sequence
 from langchain_community.tools.tavily_search import TavilySearchResults
@@ -13,7 +12,9 @@ from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
-from datetime import datetime
+import datetime
+
+from cache import r
 
 import tiktoken
 import re
@@ -69,17 +70,19 @@ def add_urls_to_db(urls: List[str], db):
             default_header_template["Authorization"] = f"Bearer {os.environ['JINA_API_KEY']}"
             default_header_template["X-With-Generated-Alt"] = "true"
         # Only add url if it is not already in the database
-        if len(db.get(where={"source": url})["ids"]) == 0:
+        if len(r.keys(url)) == 0:
             print("Adding to database: ", url)
             loader = AsyncHtmlLoader([url], header_template=default_header_template)
             webdocs = loader.load()
             for doc in webdocs:
                 doc.metadata["source"] = url
-                doc.metadata["date_added"] = datetime.now().isoformat()
+                doc.metadata["date_added"] = datetime.datetime.now().isoformat()
             page_errors = check_page_content_for_errors(webdocs[0].page_content)
             if page_errors:
                 print(f"[HtmlLoader] Error loading {url}: {page_errors}")
             else:
+                for doc in webdocs:
+                    add_doc_to_redis(r, doc)
                 chunks = split_documents(webdocs)
                 add_to_chroma(db, chunks)
                 docs += webdocs
@@ -89,7 +92,7 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
     from langchain_community.vectorstores.utils import filter_complex_metadata
     docs = []
     for url in urls:
-        ids_existing = db.get(where={"source": url})["ids"]
+        ids_existing = r.keys(f"*{url}")
         # Only add url if it is not already in the database
         if len(ids_existing) == 0:
             print("Adding to database: ", url)
@@ -98,7 +101,7 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
                 webdocs = loader.load()
                 for doc in webdocs:
                     doc.metadata["source"] = url
-                    doc.metadata["date_added"] = datetime.now().isoformat()
+                    doc.metadata["date_added"] = datetime.datetime.now().isoformat()
 
 
                 page_errors = check_page_content_for_errors(webdocs[0].page_content)
@@ -106,6 +109,8 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
                     print(f"[Firecrawl] Error loading {url}: {page_errors}")
                 else:
                     webdocs = filter_complex_metadata(webdocs)
+                    for doc in webdocs:
+                        add_doc_to_redis(r, doc)
                     chunks = split_documents(webdocs)
                     add_to_chroma(db, chunks)
                     docs += webdocs
@@ -123,6 +128,10 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
 
     return docs
 
+def add_doc_to_redis(r, doc):
+    doc_dict = {**doc.metadata, **{"date_added": int(datetime.datetime.timestamp(datetime.datetime.now(datetime.UTC))), "page_content": doc.page_content, "page_length": len(doc.page_content)}}
+    r.hset(doc_dict["source"], mapping=doc_dict)
+
 def add_urls_to_db_chrome(urls: List[str], db):
     from chromium import AsyncChromiumLoader
     from langchain_community.document_transformers import Html2TextTransformer
@@ -130,21 +139,26 @@ def add_urls_to_db_chrome(urls: List[str], db):
     nest_asyncio.apply()
 
     # Filter urls that are already in the database
-    filtered_urls = [url for url in urls if len(db.get(where={"source": url})["ids"]) == 0]
+    filtered_urls = [url for url in urls if len(r.keys(url)) == 0]
     print("Adding to database: ", filtered_urls)
     loader = AsyncChromiumLoader(urls = filtered_urls)
     docs = loader.load()
+    # Cache raw html in redis
+    for doc in docs:
+        r.hset(doc.metadata["source"], mapping={"raw_html": doc.page_content})
     # Transform the documents to markdown
     html2text = Html2TextTransformer(ignore_links=False)
     docs_transformed = html2text.transform_documents(docs)
     for doc in docs_transformed:
-        doc.metadata["date_added"] = datetime.now().isoformat()
+        doc.metadata["date_added"] = datetime.datetime.now().isoformat()
     docs_to_return = []
     for doc in docs_transformed:
         page_errors = check_page_content_for_errors(doc.page_content)
         if page_errors:
             print(f"[Chrome] Error loading {doc.metadata.get('source')}: {page_errors}")
         else:
+            # Cache pre-chunked documents in redis
+            add_doc_to_redis(r, doc)
             chunks = split_documents([doc])
             add_to_chroma(db, chunks)
             docs_to_return += doc
