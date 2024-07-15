@@ -24,6 +24,8 @@ import numpy as np
 import os
 from dotenv import load_dotenv
 
+from cache import r
+
 load_dotenv()
 
 MAX_TOKEN_LENGTH = 24_000
@@ -234,15 +236,10 @@ def retrieve(state: GraphState) -> GraphState:
     # List of source documents that we want to include
     rag_filter = state.get("rag_filter", None)
     if rag_filter is not None:
-        source_list = list(
-            set(
-                [
-                    doc["source"]
-                    for doc in db.get()["metadatas"]
-                    if rag_filter in doc["source"]
-                ]
-            )
-        )
+        source_list = [uri.replace("climate-rag::source:", "") for uri in r.keys(f"climate-rag::source:{rag_filter}")]
+        if len(source_list) == 0:
+            print("No source documents found in database")
+            return {"documents": [], "search_prompts": state["search_prompts"]}
         retriever = db.as_retriever(
             search_type="similarity",
             search_kwargs={"k": k, "filter": {"source": {"$in": source_list}}},
@@ -567,7 +564,7 @@ def decide_to_rerank(state: GraphState) -> GraphState:
         str: Binary decision for next node to call
     """
 
-    if state.get("do_rerank", False):
+    if state.get("do_rerank", False) and (len(state["documents"]) > 1):
         return "rerank"
     else:
         return "no_rerank"

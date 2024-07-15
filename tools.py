@@ -130,7 +130,7 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
 
 def add_doc_to_redis(r, doc):
     doc_dict = {**doc.metadata, **{"date_added": int(datetime.datetime.timestamp(datetime.datetime.now(datetime.UTC))), "page_content": doc.page_content, "page_length": len(doc.page_content)}}
-    r.hset(doc_dict["source"], mapping=doc_dict)
+    r.hset("climate-rag::source:" + doc_dict["source"], mapping=doc_dict)
 
 def add_urls_to_db_chrome(urls: List[str], db):
     from chromium import AsyncChromiumLoader
@@ -145,7 +145,7 @@ def add_urls_to_db_chrome(urls: List[str], db):
     docs = loader.load()
     # Cache raw html in redis
     for doc in docs:
-        r.hset(doc.metadata["source"], mapping={"raw_html": doc.page_content})
+        r.hset("climate-rag::source:" + doc.metadata["source"], mapping={"raw_html": doc.page_content})
     # Transform the documents to markdown
     html2text = Html2TextTransformer(ignore_links=False)
     docs_transformed = html2text.transform_documents(docs)

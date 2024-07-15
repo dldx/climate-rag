@@ -1,4 +1,5 @@
 import argparse
+import redis
 import os
 from typing import List, Literal, Optional, Tuple
 from dotenv import load_dotenv
@@ -96,14 +97,19 @@ def main():
         default=None,
     )
 
-    parser.set_defaults(
-        rerank=True, crawl=True, improve_question=True, initial_generation=True
-    )
+    parser.set_defaults(crawl=True, improve_question=True, initial_generation=True)
 
     args = parser.parse_args()
     query_text = (
         args.query_text[0] if type(args.query_text) == list else args.query_text
     )
+
+    if args.language == "vi":
+        if args.rerank is None:
+            args.rerank = False
+    else:
+        if args.rerank is None:
+            args.rerank = True
 
     db = get_vector_store()
     if len(args.get_docs) > 0:
@@ -148,7 +154,7 @@ def get_documents_from_db(db, doc_ids: List[str]):
         )
 
 
-def query_source_documents(db, source_uri: str, print=True) -> pd.DataFrame:
+def query_source_documents(db, source_uri: str, print_output=True) -> pd.DataFrame:
     """
     Query the database for documents with a specific metadata key-value pair. Currently only supports querying by source.
 
@@ -160,19 +166,27 @@ def query_source_documents(db, source_uri: str, print=True) -> pd.DataFrame:
     Returns:
         pd.DataFrame: The documents that match the query
     """
-    keys = r.keys(source_uri)
+    keys = r.keys("climate-rag::source:" + source_uri)
     if len(keys) == 0:
         df = pd.DataFrame(
             columns=["source", "page_content", "raw_html", "date_added", "page_length"]
         )
     else:
-        df = pd.concat([pd.Series(r.hgetall(key)) for key in keys], axis=1).T.assign(
+        all_docs = []
+        for key in keys:
+            try:
+                doc = pd.Series(r.hgetall(key))
+            except redis.exceptions.ResponseError as e:
+                print(e, key)
+
+            all_docs.append(doc)
+        df = pd.concat(all_docs, axis=1).T.assign(
             # Convert unix timestamp to datetime
             date_added=lambda x: pd.to_datetime(
                 x["date_added"].astype(float), unit="s", errors="coerce"
             ).dt.strftime("%Y-%m-%d"),
         )
-    if print:
+    if print_output:
         # Return df as list of rows
         for row in df.to_dict(orient="records"):
             pretty_print(

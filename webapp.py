@@ -8,6 +8,8 @@ from tools import get_vector_store
 
 db = get_vector_store()
 
+answers = {}
+
 
 def climate_chat(
     message,
@@ -36,6 +38,10 @@ def climate_chat(
         message = questions[-1]
     else:
         questions.append(message)
+    if rag_filter == "":
+        rag_filter = None
+    else:
+        rag_filter = f"*{rag_filter}*"
     if (getting_feedback and not happy_with_answer) or not getting_feedback:
         for key, value in run_query(
             message,
@@ -50,22 +56,25 @@ def climate_chat(
             initial_generation=happy_with_answer,
         ):
             if (key == "improve_question") and improve_question:
-                yield f"""Better question: {value["question"]}
+                yield f"""Improved question: {value["question"]}""" + ("""
 
-                Better question (en): {value["question_en"]}""", questions
+                Better question (en): {value["question_en"]}""" if language != "en" else ""), questions
             elif key == "retrieve_from_database":
-                yield f"""Search queries: {value["search_prompts"]}
+                yield "Retrieving documents from database...", questions
+                # yield f"""Search queries: {value["search_prompts"]}
 
-                Retrieved from database: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
+                # Retrieved from database: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
             elif key == "web_search_node":
-                yield f"""Search query: {value["search_query"]}
+                yield f"""Searching the web for more information...""", questions
+                # yield f"""Search query: {value["search_query"]}
 
-                Search query (en): {value["search_query_en"]}""", questions
+                # Search query (en): {value["search_query_en"]}""", questions
             elif key == "rerank_documents":
-                yield f"""Reranked documents: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
+                # yield f"""Reranked documents: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
+                yield f"""Reranking documents...""", questions
 
             elif key == "generate":
-                yield (
+                answer = (
                     f"""# {value["initial_question"]}\n\n"""
                     + value["generation"]
                     + "\n\n**Sources:**\n\n"
@@ -81,7 +90,13 @@ def climate_chat(
                             ]
                         )
                     )
-                ), questions
+                )
+
+                # Save answer to dictionary
+                answers[value["initial_question"]] = answer
+                print(answers)
+
+                yield answer, questions
             elif key == "add_urls_to_database":
                 yield f"""Added new pages to database""", questions
             elif key == "ask_user_for_feedback":
@@ -93,9 +108,20 @@ def climate_chat(
 with gr.Blocks(
     fill_height=True,
     css="""
-.h-80 {
-    height: 80vh;
+.h-full {
+    height: 85vh;
 }
+
+.gradio-container {
+padding: 0 !important;
+}
+
+.upload-button {
+    display: none !important;
+
+}
+
+footer{display:none !important}
 
 """,
 ) as demo:
@@ -106,49 +132,56 @@ with gr.Blocks(
     gr.Markdown("# Climate RAG")
     with gr.Tab("Chat"):
         # Add a header
-        with gr.Row(elem_classes=["h-80"]):
+        with gr.Row(elem_classes=["h-full"]):
             with gr.Column(variant="panel"):
-                gr.Markdown("## Documents retrieved")
-                datasets = gr.Dataset(components=[])
+                improve_question_checkbox = gr.Checkbox(
+                    value=True, label="Auto-improve question?"
+                )
+                do_initial_generation_checkbox = gr.Checkbox(
+                    value=True, label="Generate answer before web search?"
+                )
+                do_rerank_checkbox = gr.Checkbox(value=True, label="Rerank documents?")
+                language_dropdown = gr.Dropdown(
+                    choices=[
+                        ("English", "en"),
+                        ("Chinese", "zh"),
+                        ("Italian", "it"),
+                        ("Spanish", "es"),
+                        ("German", "de"),
+                        ("Vietnamese", "vi"),
+                    ],
+                    label="Language",
+                    value="en",
+                    filterable=True,
+                )
+                rag_filter_textbox = gr.Textbox(
+                    placeholder="eg. carbontracker.org or shell*annual*pdf",
+                    label="Database filter",
+                )
+                doc_sources = gr.Dataset(
+                    components=[
+                        gr.Textbox(visible=False),
+                    ],
+                    label="Filtered documents",
+                    samples_per_page=5,
+                    headers=["Source"],
+                )
+
             with gr.Column(scale=4):
                 gr.Markdown("## Chat")
-                chatbot = gr.Chatbot(scale=4, show_label=False)
+                chatbot = gr.Chatbot(elem_id="chatbot", scale=4, show_label=False)
                 with gr.Row():
-                    msg = gr.Textbox(
+                    chat_input = gr.MultimodalTextbox(
+                        elem_id="msg-box",
+                        interactive=True,
                         placeholder="Ask a question. e.g. What does the Shell 2023 annual report say about climate change?",
+                        file_types=[],
                         show_label=False,
+                        scale=6,
                     )
-                with gr.Row():
-                    improve_question_checkbox = gr.Checkbox(
-                        value=True, label="Auto-improve question?"
-                    )
-                    do_initial_generation_checkbox = gr.Checkbox(
-                        value=True, label="Generate answer before web search?"
-                    )
-                    do_rerank_checkbox = gr.Checkbox(
-                        value=True, label="Rerank documents?"
-                    )
-                    language_dropdown = gr.Dropdown(
-                        choices=[
-                            ("English", "en"),
-                            ("Chinese", "zh"),
-                            ("Italian", "it"),
-                            ("Spanish", "es"),
-                            ("German", "de"),
-                            ("Vietnamese", "vi"),
-                        ],
-                        label="Language",
-                        value="en",
-                        filterable=True,
-                    )
-                    rag_filter_textbox = gr.Textbox(
-                        placeholder="Document url filter. eg. carbontracker.org",
-                        show_label=False,
-                    )
-
                 with gr.Row():
                     stop_button = gr.Button(value="Stop", variant="stop")
-                    clear = gr.ClearButton([msg, chatbot])
+                    clear = gr.ClearButton([chat_input, chatbot])
     with gr.Tab("Documents"):
         with gr.Row():
             gr.Markdown("## Add new documents")
@@ -182,7 +215,17 @@ with gr.Blocks(
         return [gr.Checkbox(label=q) for q in questions]
 
     def user(user_message, history):
-        return "", history + [[user_message, None]], history + [[user_message, None]]
+        if (len(user_message["text"]) < 10):
+            return (
+                {"text": user_message["text"], "files": []},
+                history,
+                history,
+            )
+        return (
+            {"text": "", "files": []},
+            history + [[user_message["text"], None]],
+            history + [[user_message["text"], None]],
+        )
 
     def bot(
         chat_history,
@@ -193,6 +236,9 @@ with gr.Blocks(
         language,
         initial_generation,
     ):
+        if len(chat_history) == 0:
+            chat_history.append([None, "Hello! I'm here to help you with climate-related questions. What would you like to know?"])
+            return chat_history, chat_history, questions
         message = chat_history[-1][0]
         bot_messages = climate_chat(
             message=message,
@@ -209,10 +255,10 @@ with gr.Blocks(
             chat_history.append([None, bot_message])
             yield chat_history, chat_history, questions
 
-    converse_event = msg.submit(
+    converse_event = chat_input.submit(
         fn=user,
-        inputs=[msg, chat_state],
-        outputs=[msg, chatbot, chat_state],
+        inputs=[chat_input, chat_state],
+        outputs=[chat_input, chatbot, chat_state],
         queue=False,
     ).then(
         bot,
@@ -236,10 +282,36 @@ with gr.Blocks(
         queue=False,
     )
     questions_state.change(
-        fn=update_questions, inputs=[questions_state], outputs=[datasets], queue=False
+        fn=update_questions,
+        inputs=[questions_state],
+        outputs=[doc_sources],
+        queue=False,
     )
     clear.click(
         fn=lambda: None, inputs=None, outputs=[chatbot, chat_state], queue=False
+    )
+
+    def filter_documents(search_query):
+        from query_data import query_source_documents
+
+        if search_query is None:
+            search_query = ""
+
+        if len(search_query) < 2:
+            search_results = query_source_documents(db, "", print_output=False)[
+                ["source"]
+            ]
+        else:
+            search_results = query_source_documents(
+                db, f"*{search_query}*", print_output=False
+            )[["source"]]
+        return gr.Dataset(samples=search_results.to_numpy().tolist())
+
+    rag_filter_textbox.change(
+        fn=lambda x: filter_documents(x),
+        inputs=[rag_filter_textbox],
+        outputs=[doc_sources],
+        queue=False,
     )
 
     ## Tab 2: Documents
@@ -247,9 +319,17 @@ with gr.Blocks(
     def search_documents(search_query):
         from query_data import query_source_documents
 
-        search_results = query_source_documents(
-            db, f"*{search_query}*", print=False
-        )[["source", "date_added", "page_length", "page_content"]]
+        if search_query is None:
+            search_query = ""
+
+        if len(search_query) < 3:
+            search_results = query_source_documents(db, "", print_output=False)[
+                ["source", "date_added", "page_length", "page_content"]
+            ]
+        else:
+            search_results = query_source_documents(
+                db, f"*{search_query}*", print_output=False
+            )[["source", "date_added", "page_length", "page_content"]]
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
     search_input.change(
@@ -272,7 +352,9 @@ with gr.Blocks(
         add_urls_to_db_firecrawl([url], db)
 
         # Retrieve source markdown
-        page_content = query_source_documents(db, f"*{url}*", print=False)["page_content"].iloc[0]
+        page_content = query_source_documents(db, f"*{url}*", print_output=False)[
+            "page_content"
+        ].iloc[0]
         return page_content
 
     add_button.click(
