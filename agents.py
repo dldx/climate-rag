@@ -42,7 +42,7 @@ class GraphState(TypedDict):
         documents: list of documents
     """
 
-    llm: Literal["gpt-4o", "mistral", "claude"]
+    llm: Literal["gpt-4o", 'gpt-3.5-turbo-16k', "mistral", "claude"]
     initial_question: str
     question: str
     question_en: str

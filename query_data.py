@@ -1,7 +1,7 @@
 import argparse
 import redis
 import os
-from typing import List, Literal, Optional, Tuple
+from typing import Iterator, List, Literal, Optional, Tuple
 from dotenv import load_dotenv
 import pandas as pd
 from agents import GraphState
@@ -230,7 +230,7 @@ def get_all_documents_as_df(db) -> pd.DataFrame:
 def run_query(
     question: str,
     db,
-    llm: Literal["gpt-4o", "mistral", "claude"] = "claude",
+    llm: Literal["gpt-4o", 'gpt-3.5-turbo-16k', "mistral", "claude"] = "claude",
     rag_filter: Optional[str] = None,
     improve_question: Optional[bool] = True,
     search_tool: Literal["serper", "tavily", "baidu"] = "serper",
@@ -240,7 +240,7 @@ def run_query(
     initial_generation: Optional[bool] = True,
     history: Optional[List] = [],
     mode: Optional[Literal["gui", "cli"]] = "cli",
-):
+) -> Iterator[Tuple[str, GraphState]]:
     from graph import create_graph
 
     app = create_graph()

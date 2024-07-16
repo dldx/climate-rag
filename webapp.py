@@ -8,7 +8,20 @@ from tools import get_vector_store
 
 db = get_vector_store()
 
-answers = {}
+def download_latest_answer(questions, answer):
+    print(questions)
+    from helpers import md_to_pdf, pdf_to_docx
+    from tempfile import TemporaryDirectory
+    if len(answer) == 0:
+        return gr.DownloadButton(label="Download as Word document", visible=False)
+
+    pdf_path = "answer.pdf"
+    docx_path = "answer.docx"
+
+    md_to_pdf(answer, pdf_path)
+    pdf_to_docx(pdf_path, docx_path)
+
+    return gr.DownloadButton(label="Download as Word document", value=docx_path, visible=True)
 
 
 def climate_chat(
@@ -23,6 +36,7 @@ def climate_chat(
 ):
     happy_with_answer = True
     getting_feedback = False
+    answer = ""
     if len(history) > 1:
         getting_feedback = history[-2][1] == "Are you happy with the answer? (y/n)"
         if getting_feedback:
@@ -32,7 +46,7 @@ def climate_chat(
                 happy_with_answer = True
                 getting_feedback = False
         if happy_with_answer:
-            yield "Great! I'm glad I could help. What else would you like to know?", questions
+            yield "Great! I'm glad I could help. What else would you like to know?", questions, ""
 
     if getting_feedback:
         message = questions[-1]
@@ -56,22 +70,28 @@ def climate_chat(
             initial_generation=happy_with_answer,
         ):
             if (key == "improve_question") and improve_question:
-                yield f"""Improved question: {value["question"]}""" + ("""
+                yield f"""**Improved question:** {value["question"]}""" + ("""
 
-                Better question (en): {value["question_en"]}""" if language != "en" else ""), questions
+                **Better question (en):** {value["question_en"]}""" if language != "en" else ""), questions, ""
+            elif key == "formulate_query":
+                yield f"""**Generated search queries:**\n\n""" + "\n".join(
+                    [(f" * {query.query} ({query.query_en})" if language != "en" else f" * {query.query_en}") for query in value["search_prompts"]]
+                ), questions, ""
+
+
             elif key == "retrieve_from_database":
-                yield "Retrieving documents from database...", questions
+                yield "**Retrieving documents from database...**", questions, ""
                 # yield f"""Search queries: {value["search_prompts"]}
 
                 # Retrieved from database: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
             elif key == "web_search_node":
-                yield f"""Searching the web for more information...""", questions
+                yield f"""**Searching the web for more information...**""", questions, ""
                 # yield f"""Search query: {value["search_query"]}
 
                 # Search query (en): {value["search_query_en"]}""", questions
             elif key == "rerank_documents":
                 # yield f"""Reranked documents: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
-                yield f"""Reranking documents...""", questions
+                yield f"""**Reranking documents...**""", questions, ""
 
             elif key == "generate":
                 answer = (
@@ -92,17 +112,13 @@ def climate_chat(
                     )
                 )
 
-                # Save answer to dictionary
-                answers[value["initial_question"]] = answer
-                print(answers)
-
-                yield answer, questions
+                yield answer, questions, answer
             elif key == "add_urls_to_database":
-                yield f"""Added new pages to database""", questions
+                yield f"""Added new pages to database""", questions, ""
             elif key == "ask_user_for_feedback":
-                yield f"""Are you happy with the answer? (y/n)""", questions
+                yield f"""Are you happy with the answer? (y/n)""", questions, ""
             else:
-                yield str(value), questions
+                yield str(value), questions, ""
 
 
 with gr.Blocks(
@@ -113,7 +129,7 @@ with gr.Blocks(
 }
 
 .gradio-container {
-padding: 0 !important;
+    padding: 0 !important;
 }
 
 .upload-button {
@@ -121,7 +137,9 @@ padding: 0 !important;
 
 }
 
-footer{display:none !important}
+footer {
+    display:none !important
+}
 
 """,
 ) as demo:
@@ -155,7 +173,7 @@ footer{display:none !important}
                     filterable=True,
                 )
                 rag_filter_textbox = gr.Textbox(
-                    placeholder="eg. carbontracker.org or shell*annual*pdf",
+                    placeholder="eg. carbontracker.org or shell*annual",
                     label="Database filter",
                 )
                 doc_sources = gr.Dataset(
@@ -181,6 +199,7 @@ footer{display:none !important}
                     )
                 with gr.Row():
                     stop_button = gr.Button(value="Stop", variant="stop")
+                    download_button = gr.DownloadButton(label="Download as Word document", visible=False)
                     clear = gr.ClearButton([chat_input, chatbot])
     with gr.Tab("Documents"):
         with gr.Row():
@@ -215,17 +234,18 @@ footer{display:none !important}
         return [gr.Checkbox(label=q) for q in questions]
 
     def user(user_message, history):
-        if (len(user_message["text"]) < 10):
+        if (len(user_message["text"]) > 10) or (user_message["text"]) in ["y", "n"]:
+            return (
+                {"text": "", "files": []},
+                history + [[user_message["text"], None]],
+                history + [[user_message["text"], None]],
+            )
+        else:
             return (
                 {"text": user_message["text"], "files": []},
                 history,
                 history,
             )
-        return (
-            {"text": "", "files": []},
-            history + [[user_message["text"], None]],
-            history + [[user_message["text"], None]],
-        )
 
     def bot(
         chat_history,
@@ -238,7 +258,7 @@ footer{display:none !important}
     ):
         if len(chat_history) == 0:
             chat_history.append([None, "Hello! I'm here to help you with climate-related questions. What would you like to know?"])
-            return chat_history, chat_history, questions
+            return chat_history, chat_history, questions, None
         message = chat_history[-1][0]
         bot_messages = climate_chat(
             message=message,
@@ -250,10 +270,9 @@ footer{display:none !important}
             language=language,
             initial_generation=initial_generation,
         )
-        chat_history[-1][0]
-        for bot_message, questions in bot_messages:
+        for bot_message, questions, answers in bot_messages:
             chat_history.append([None, bot_message])
-            yield chat_history, chat_history, questions
+            yield chat_history, chat_history, questions, download_latest_answer(questions, answers)
 
     converse_event = chat_input.submit(
         fn=user,
@@ -269,9 +288,9 @@ footer{display:none !important}
             improve_question_checkbox,
             do_rerank_checkbox,
             language_dropdown,
-            do_initial_generation_checkbox,
+            do_initial_generation_checkbox
         ],
-        [chatbot, chat_state, questions_state],
+        [chatbot, chat_state, questions_state, download_button],
     )
 
     stop_button.click(
@@ -290,6 +309,9 @@ footer{display:none !important}
     clear.click(
         fn=lambda: None, inputs=None, outputs=[chatbot, chat_state], queue=False
     )
+
+
+
 
     def filter_documents(search_query):
         from query_data import query_source_documents
