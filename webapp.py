@@ -11,12 +11,12 @@ db = get_vector_store()
 
 def download_latest_answer(questions, answers):
     from ulid import ULID
-    from helpers import md_to_pdf, pdf_to_docx
+    from helpers import md_to_pdf, pdf_to_docx, get_valid_filename
 
     print(questions, answers)
     if len(answers) == 0 or len(questions) > len(answers):
-        return gr.DownloadButton(label="Download as Word document", visible=False)
-    question = questions[-1]
+        return gr.DownloadButton(visible=False), gr.DownloadButton(visible=False)
+    question = get_valid_filename(questions[-1])
     answer = answers[-1]
 
     os.makedirs("tmp", exist_ok=True)
@@ -27,7 +27,7 @@ def download_latest_answer(questions, answers):
     md_to_pdf(answer, pdf_path)
     pdf_to_docx(pdf_path, docx_path)
 
-    return gr.DownloadButton(label="Download as Word document", value=docx_path, visible=True)
+    return gr.DownloadButton(value=docx_path, visible=True), gr.DownloadButton(value=pdf_path, visible=True)
 
 
 def climate_chat(
@@ -207,9 +207,10 @@ footer {
                         scale=6,
                     )
                 with gr.Row():
-                    stop_button = gr.Button(value="Stop", variant="stop")
-                    download_button = gr.DownloadButton(label="Download as Word document", visible=False)
-                    clear = gr.ClearButton([chat_input, chatbot])
+                    stop_button = gr.Button(value="Stop", variant="stop", scale=5)
+                    download_word_button = gr.DownloadButton(icon="static/ri--file-word-line.svg", label="Download DOCX", size="sm", scale=1, visible=False)
+                    download_pdf_button = gr.DownloadButton(icon="static/ri--file-pdf-line.svg", label="Download PDF", size="sm", scale=1, visible=False)
+                    clear = gr.ClearButton([chat_input, chatbot], scale=5)
     with gr.Tab("Documents"):
         with gr.Row():
             gr.Markdown("## Add new documents")
@@ -283,7 +284,7 @@ footer {
         )
         for bot_message, questions, answers in bot_messages:
             chat_history.append([None, bot_message])
-            yield chat_history, chat_history, questions, answers, download_latest_answer(questions, answers)
+            yield chat_history, chat_history, questions, answers, *download_latest_answer(questions, answers)
 
     converse_event = chat_input.submit(
         fn=user,
@@ -302,7 +303,7 @@ footer {
             language_dropdown,
             do_initial_generation_checkbox
         ],
-        [chatbot, chat_state, questions_state, answers_state, download_button],
+        [chatbot, chat_state, questions_state, answers_state, download_word_button, download_pdf_button],
     )
 
     def stop_querying(questions):
@@ -324,7 +325,7 @@ footer {
         queue=False,
     )
     clear.click(
-        fn=lambda: None, inputs=None, outputs=[chatbot, chat_state], queue=False
+        fn=lambda: (None, []), inputs=None, outputs=[chatbot, chat_state], queue=False
     )
 
 

@@ -29,3 +29,11 @@ def pdf_to_docx(pdf_path: str, docx_path: str) -> str:
     pdf2docx.Converter(pdf_path).convert(docx_path)
 
     return docx_path
+
+def get_valid_filename(name):
+    import re
+    s = str(name).strip().replace(" ", "_")
+    s = re.sub(r"(?u)[^-\w.]", "", s)
+    if s in {"", ".", ".."}:
+        raise AssertionError("Could not derive file name from '%s'" % name)
+    return s

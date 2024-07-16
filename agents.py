@@ -235,6 +235,8 @@ def retrieve(state: GraphState) -> GraphState:
     k = 100
     # List of source documents that we want to include
     rag_filter = state.get("rag_filter", None)
+    if rag_filter == "":
+        rag_filter = None
     if rag_filter is not None:
         source_list = [uri.replace("climate-rag::source:", "") for uri in r.keys(f"climate-rag::source:{rag_filter}")]
         if len(source_list) == 0:
