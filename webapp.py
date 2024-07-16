@@ -1,5 +1,6 @@
 import gradio as gr
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
 
@@ -8,15 +9,20 @@ from tools import get_vector_store
 
 db = get_vector_store()
 
-def download_latest_answer(questions, answer):
-    print(questions)
+def download_latest_answer(questions, answers):
+    from ulid import ULID
     from helpers import md_to_pdf, pdf_to_docx
-    from tempfile import TemporaryDirectory
-    if len(answer) == 0:
-        return gr.DownloadButton(label="Download as Word document", visible=False)
 
-    pdf_path = "answer.pdf"
-    docx_path = "answer.docx"
+    print(questions, answers)
+    if len(answers) == 0 or len(questions) > len(answers):
+        return gr.DownloadButton(label="Download as Word document", visible=False)
+    question = questions[-1]
+    answer = answers[-1]
+
+    os.makedirs("tmp", exist_ok=True)
+
+    pdf_path = f"tmp/{ULID()}_{question}.pdf"
+    docx_path = f"tmp/{ULID()}_{question}.docx"
 
     md_to_pdf(answer, pdf_path)
     pdf_to_docx(pdf_path, docx_path)
@@ -28,6 +34,7 @@ def climate_chat(
     message,
     history,
     questions,
+    answers,
     rag_filter,
     improve_question,
     do_rerank,
@@ -72,26 +79,26 @@ def climate_chat(
             if (key == "improve_question") and improve_question:
                 yield f"""**Improved question:** {value["question"]}""" + ("""
 
-                **Better question (en):** {value["question_en"]}""" if language != "en" else ""), questions, ""
+                **Better question (en):** {value["question_en"]}""" if language != "en" else ""), questions, answers
             elif key == "formulate_query":
                 yield f"""**Generated search queries:**\n\n""" + "\n".join(
                     [(f" * {query.query} ({query.query_en})" if language != "en" else f" * {query.query_en}") for query in value["search_prompts"]]
-                ), questions, ""
+                ), questions, answers
 
 
             elif key == "retrieve_from_database":
-                yield "**Retrieving documents from database...**", questions, ""
+                yield "**Retrieving documents from database...**", questions, answers
                 # yield f"""Search queries: {value["search_prompts"]}
 
                 # Retrieved from database: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
             elif key == "web_search_node":
-                yield f"""**Searching the web for more information...**""", questions, ""
+                yield f"""**Searching the web for more information...**""", questions, answers
                 # yield f"""Search query: {value["search_query"]}
 
                 # Search query (en): {value["search_query_en"]}""", questions
             elif key == "rerank_documents":
                 # yield f"""Reranked documents: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
-                yield f"""**Reranking documents...**""", questions, ""
+                yield f"""**Reranking documents...**""", questions, answers
 
             elif key == "generate":
                 answer = (
@@ -111,14 +118,15 @@ def climate_chat(
                         )
                     )
                 )
+                answers.append(answer)
 
-                yield answer, questions, answer
+                yield answer, questions, answers
             elif key == "add_urls_to_database":
-                yield f"""Added new pages to database""", questions, ""
+                yield f"""Added new pages to database""", questions, answers
             elif key == "ask_user_for_feedback":
-                yield f"""Are you happy with the answer? (y/n)""", questions, ""
+                yield f"""Are you happy with the answer? (y/n)""", questions, answers
             else:
-                yield str(value), questions, ""
+                yield str(value), questions, answers
 
 
 with gr.Blocks(
@@ -146,6 +154,7 @@ footer {
     # Define how to store state
     chat_state = gr.State([])
     questions_state = gr.State([])
+    answers_state = gr.State([])
 
     gr.Markdown("# Climate RAG")
     with gr.Tab("Chat"):
@@ -250,6 +259,7 @@ footer {
     def bot(
         chat_history,
         questions,
+        answers,
         rag_filter,
         improve_question,
         do_rerank,
@@ -264,6 +274,7 @@ footer {
             message=message,
             history=chat_history,
             questions=questions,
+            answers=answers,
             rag_filter=rag_filter,
             improve_question=improve_question,
             do_rerank=do_rerank,
@@ -272,7 +283,7 @@ footer {
         )
         for bot_message, questions, answers in bot_messages:
             chat_history.append([None, bot_message])
-            yield chat_history, chat_history, questions, download_latest_answer(questions, answers)
+            yield chat_history, chat_history, questions, answers, download_latest_answer(questions, answers)
 
     converse_event = chat_input.submit(
         fn=user,
@@ -284,19 +295,25 @@ footer {
         [
             chatbot,
             questions_state,
+            answers_state,
             rag_filter_textbox,
             improve_question_checkbox,
             do_rerank_checkbox,
             language_dropdown,
             do_initial_generation_checkbox
         ],
-        [chatbot, chat_state, questions_state, download_button],
+        [chatbot, chat_state, questions_state, answers_state, download_button],
     )
 
+    def stop_querying(questions):
+        # Remove the last question
+        questions.pop()
+        return questions
+
     stop_button.click(
-        fn=None,
-        inputs=None,
-        outputs=None,
+        fn=stop_querying,
+        inputs=[questions_state],
+        outputs=[questions_state],
         cancels=[converse_event],
         queue=False,
     )
