@@ -4,8 +4,6 @@ import shutil
 from tools import add_urls_to_db_firecrawl, split_documents, add_to_chroma, get_vector_store, load_documents, clear_database
 
 
-CHROMA_PATH = "chroma"
-
 def main():
     # Check if the database should be cleared (using the --clear flag).
     parser = argparse.ArgumentParser()

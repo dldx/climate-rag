@@ -21,7 +21,6 @@ import re
 enc = tiktoken.encoding_for_model("gpt-4o")
 
 web_search_tool = TavilySearchResults(k=3)
-CHROMA_PATH = "chroma"
 DATA_PATH = "data"
 
 
@@ -177,7 +176,7 @@ def format_docs(docs):
 
 def get_vector_store():
     import chromadb
-    client = chromadb.HttpClient(host='localhost', port=8150)
+    client = chromadb.HttpClient(host=os.environ["CHROMADB_HOSTNAME"], port=int(os.environ["CHROMADB_PORT"]))
     embedding_function = get_embedding_function()
 
     db = Chroma(client=client, collection_name="langchain", embedding_function=embedding_function)
@@ -195,10 +194,6 @@ def load_documents():
         data += document_loader.load()
 
     return data
-
-def clear_database():
-    if os.path.exists(CHROMA_PATH):
-        shutil.rmtree(CHROMA_PATH)
 
 
 def split_documents(documents: list[Document], splitter: Literal['character', 'semantic'] = 'semantic', max_token_length: int = 3000, iter_no: int = 0) -> list[Document]:
