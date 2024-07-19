@@ -1,7 +1,7 @@
 import argparse
 import os
 import shutil
-from tools import add_urls_to_db_firecrawl, split_documents, add_to_chroma, get_vector_store, load_documents, upload_document
+from tools import add_urls_to_db_firecrawl, split_documents, add_to_chroma, get_vector_store, load_documents, upload_documents
 
 
 def main():
@@ -18,8 +18,7 @@ def main():
         for url in args.urls:
             add_urls_to_db_firecrawl([url], db)
     elif args.files:
-        for file in args.files:
-            upload_document(file, db)
+        upload_documents(args.files, db)
     else:
         documents = load_documents()
         chunks = split_documents(documents)

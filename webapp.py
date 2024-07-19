@@ -1,7 +1,7 @@
 import gradio as gr
 from dotenv import load_dotenv
 import os
-
+import shutil
 load_dotenv()
 
 from helpers import clean_urls
@@ -21,13 +21,26 @@ def download_latest_answer(questions, answers):
 
     os.makedirs("tmp", exist_ok=True)
 
-    pdf_path = f"tmp/{ULID()}_{question}.pdf"
-    docx_path = f"tmp/{ULID()}_{question}.docx"
+    filename = f"{ULID()}_{question}"[:200]
+    pdf_path = f"tmp/{filename}.pdf"
+    docx_path = f"tmp/{filename}.docx"
 
     md_to_pdf(answer, pdf_path)
     pdf_to_docx(pdf_path, docx_path)
 
-    return gr.DownloadButton(value=docx_path, visible=True), gr.DownloadButton(value=pdf_path, visible=True)
+    if (os.environ.get("STATIC_PATH", "") != "") and (os.environ.get("UPLOAD_PATH", "") != ""):
+        # Copy the files to the static path
+        os.makedirs(f"{os.environ.get('UPLOAD_FILE_PATH')}/outputs", exist_ok=True)
+        shutil.copy(pdf_path, f"{os.environ.get('UPLOAD_FILE_PATH')}/outputs/{filename}.pdf")
+        shutil.copy(docx_path, f"{os.environ.get('UPLOAD_FILE_PATH')}/outputs/{filename}.docx")
+        # Serve the files from the static path instead
+        pdf_download_url = f"{os.environ.get('STATIC_PATH')}/outputs/{filename}.pdf"
+        docx_download_url = f"{os.environ.get('STATIC_PATH')}/outputs/{filename}.docx"
+    else:
+        pdf_download_url = pdf_path
+        docx_download_url = docx_path
+
+    return gr.DownloadButton(value=docx_download_url, visible=True), gr.DownloadButton(value=pdf_download_url, visible=True)
 
 
 def climate_chat(
@@ -220,7 +233,7 @@ footer {
         with gr.Row():
             gr.Markdown("## Add new documents")
         with gr.Row():
-            new_file = gr.File(label="Upload documents", file_types=["pdf", "PDF"])
+            new_file = gr.File(label="Upload documents", file_types=["pdf", "PDF"], file_count='multiple', type='filepath')
             with gr.Column():
                 url_input = gr.Textbox(placeholder="Enter a URL", show_label=False)
                 add_button = gr.Button(value="Add/View")
@@ -417,11 +430,11 @@ footer {
     # )
 
     # Upload new document
-    from tools import upload_document
+    from tools import upload_documents
 
 
     new_file.upload(
-        fn=lambda x: upload_document(x, db),
+        fn=lambda x: upload_documents(x, db)[-1], # Return the last document added only
         inputs=[new_file],
         outputs=[search_input],
         queue=False,
@@ -429,6 +442,11 @@ footer {
         search_documents,
         [search_input],
         [search_results_display],
+    ).then(
+        lambda: None,
+        inputs=None,
+        outputs=[new_file],
+        queue=False,
     )
 
 demo.queue()

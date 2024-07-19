@@ -301,7 +301,7 @@ def retrieve_multiple_queries(queries: List[str], retriever, k: int = -1):
 
     return unique_documents
 
-def upload_document(file, db) -> str:
+def upload_documents(files: str | List[str], db) -> List[str]:
     """
     Add a document to the database from a local path.
 
@@ -316,27 +316,34 @@ def upload_document(file, db) -> str:
     UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
     STATIC_PATH = os.environ.get("STATIC_PATH", "")
 
-    filename = file.split("/")[-1]
-    # if UPLOAD_FILE_PATH is specified, use it to save the uploaded file
-    if (UPLOAD_FILE_PATH != "") and (STATIC_PATH != ""):
-        local_path = os.path.join(UPLOAD_FILE_PATH, filename)
-        os.makedirs(UPLOAD_FILE_PATH, exist_ok=True)
-        # Check if file already exists
-        if os.path.exists(local_path):
-            return f"File {filename} already exists! Rename the file and try again."
-        shutil.copyfile(file, local_path)
+    if type(files) == str:
+        files = [files]
 
-    # Now upload the file to tmpfiles.org to load into firecrawl or jina
-    response = requests.post(
-        url="https://tmpfiles.org/api/v1/upload", files={"file": open(file, "rb")}
-    )
-    # Store filename with URL
-    tmpfiles_dl_url = (
-        "https://tmpfiles.org/dl/"
-        + response.json()["data"]["url"].replace("https://tmpfiles.org", "")
-        + "#"
-        + filename
-    )
-    print("Uploaded to tmpfiles.org at ", tmpfiles_dl_url)
-    add_urls_to_db_firecrawl([tmpfiles_dl_url], db)
-    return filename
+    filenames = []
+
+    for file in files:
+        filename = file.split("/")[-1]
+        # if UPLOAD_FILE_PATH is specified, use it to save the uploaded file
+        if (UPLOAD_FILE_PATH != "") and (STATIC_PATH != ""):
+            local_path = os.path.join(UPLOAD_FILE_PATH, filename)
+            os.makedirs(UPLOAD_FILE_PATH, exist_ok=True)
+            # Check if file already exists
+            if os.path.exists(local_path):
+                return f"File {filename} already exists! Rename the file and try again."
+            shutil.copyfile(file, local_path)
+
+        # Now upload the file to tmpfiles.org to load into firecrawl or jina
+        response = requests.post(
+            url="https://tmpfiles.org/api/v1/upload", files={"file": open(file, "rb")}
+        )
+        # Store filename with URL
+        tmpfiles_dl_url = (
+            "https://tmpfiles.org/dl/"
+            + response.json()["data"]["url"].replace("https://tmpfiles.org", "")
+            + "#"
+            + filename
+        )
+        print("Uploaded to tmpfiles.org at ", tmpfiles_dl_url)
+        add_urls_to_db_firecrawl([tmpfiles_dl_url], db)
+        filenames.append(filename)
+    return filenames
