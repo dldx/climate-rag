@@ -15,6 +15,7 @@ from langchain_core.documents import Document
 import datetime
 
 from cache import r
+from helpers import clean_urls
 
 import tiktoken
 import re
@@ -169,7 +170,7 @@ def format_docs(docs):
     return "\n\n".join(
         "Source: {source}\nContent: {content}\n\n---".format(
             content=doc.page_content,
-            source=doc.metadata["source"] if "source" in doc.metadata.keys() else "",
+            source=clean_urls([doc.metadata["source"]])[0] if "source" in doc.metadata.keys() else "",
         )
         for doc in docs
     )

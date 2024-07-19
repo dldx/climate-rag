@@ -5,6 +5,7 @@ from typing import Iterator, List, Literal, Optional, Tuple
 from dotenv import load_dotenv
 import pandas as pd
 from agents import GraphState
+from helpers import clean_urls
 from tools import get_vector_store
 import langcodes
 from cache import r
@@ -275,7 +276,7 @@ def run_query(
                             set(
                                 [
                                     (
-                                        " * " + doc.metadata["source"]
+                                        " * " + clean_urls([doc.metadata["source"]])[0]
                                         if "source" in doc.metadata.keys()
                                         else ""
                                     )

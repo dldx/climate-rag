@@ -1,4 +1,6 @@
 import pdf2docx
+import re
+import pandas as pd
 from markdown_pdf import Section, MarkdownPdf
 
 def md_to_pdf(md_string: str, pdf_path: str) -> str:
@@ -31,9 +33,28 @@ def pdf_to_docx(pdf_path: str, docx_path: str) -> str:
     return docx_path
 
 def get_valid_filename(name):
-    import re
     s = str(name).strip().replace(" ", "_")
     s = re.sub(r"(?u)[^-\w.]", "", s)
     if s in {"", ".", ".."}:
         raise AssertionError("Could not derive file name from '%s'" % name)
     return s
+
+def clean_urls(urls):
+    """
+    Clean a list of URLs by removing irrelevant domain names.
+
+    Args:
+        urls (list): A list of URLs to clean.
+
+    Returns:
+        list: A list of cleaned URLs.
+    """
+    # Convert to pandas series
+    urls = pd.Series(urls)
+
+    # Remove tmpfiles.org prefix
+    pattern = r"https://r\.jina\.ai/https://tmpfiles\.org/dl/.+?#"
+    urls = urls.str.replace(pattern, "", regex=True)
+    # Remove jina.ai prefix
+    urls = urls.str.replace("https://r.jina.ai/", "")
+    return urls.tolist()

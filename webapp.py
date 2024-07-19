@@ -4,6 +4,7 @@ import os
 
 load_dotenv()
 
+from helpers import clean_urls
 from query_data import query_source_documents, run_query
 from tools import get_vector_store
 
@@ -13,7 +14,6 @@ def download_latest_answer(questions, answers):
     from ulid import ULID
     from helpers import md_to_pdf, pdf_to_docx, get_valid_filename
 
-    print(questions, answers)
     if len(answers) == 0 or len(questions) > len(answers):
         return gr.DownloadButton(visible=False), gr.DownloadButton(visible=False)
     question = get_valid_filename(questions[-1])
@@ -109,7 +109,7 @@ def climate_chat(
                         set(
                             [
                                 (
-                                    " * " + doc.metadata["source"]
+                                    " * " + clean_urls([doc.metadata["source"]])[0]
                                     if "source" in doc.metadata.keys()
                                     else ""
                                 )
@@ -172,10 +172,15 @@ footer {
                     choices=[
                         ("English", "en"),
                         ("Chinese", "zh"),
+                        ("Vietnamese", "vi"),
+                        ("Japanese", "ja"),
+                        ("Indonesian", "id"),
+                        ("Korean", "ko"),
+                        ("Russian", "ru"),
+                        ("Kazakh", "kk"),
                         ("Italian", "it"),
                         ("Spanish", "es"),
                         ("German", "de"),
-                        ("Vietnamese", "vi"),
                     ],
                     label="Language",
                     value="en",
@@ -345,6 +350,8 @@ footer {
             search_results = query_source_documents(
                 db, f"*{search_query}*", print_output=False
             )[["source"]]
+            search_results["source"] = clean_urls(search_results["source"].tolist())
+
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
     rag_filter_textbox.change(
@@ -410,21 +417,38 @@ footer {
     # )
 
     # Upload new document
+
     def upload_document(file):
         import requests
         from tools import add_urls_to_db_firecrawl
+        import shutil
+        UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
+        DOMAIN = os.environ.get("DOMAIN", "")
 
         filename = file.split("/")[-1]
-        response = requests.post(
-            url="https://tmpfiles.org/api/v1/upload", files={"file": open(file, "rb")}
-        )
-        # Store filename with URL
-        dl_url = (
-            "https://tmpfiles.org/dl/"
-            + response.json()["data"]["url"].replace("https://tmpfiles.org", "")
-            + "#"
-            + filename
-        )
+        # if UPLOAD_FILE_PATH is specified, use it to save the uploaded file
+        if (UPLOAD_FILE_PATH != "") and (DOMAIN != ""):
+            local_path = os.path.join(UPLOAD_FILE_PATH, filename)
+            os.makedirs(UPLOAD_FILE_PATH, exist_ok=True)
+            # Check if file already exists
+            if os.path.exists(local_path):
+                return f"File {filename} already exists! Rename the file and try again."
+            shutil.copyfile(file, local_path)
+            dl_url = f"{DOMAIN}/files/{filename}"
+            print("Serving from local folder at ", dl_url)
+        else:
+            # Otherwise, upload the file to tmpfiles.org
+            response = requests.post(
+                url="https://tmpfiles.org/api/v1/upload", files={"file": open(file, "rb")}
+            )
+            # Store filename with URL
+            dl_url = (
+                "https://tmpfiles.org/dl/"
+                + response.json()["data"]["url"].replace("https://tmpfiles.org", "")
+                + "#"
+                + filename
+            )
+            print("Uploaded to tmpfiles.org at ", dl_url)
         add_urls_to_db_firecrawl([dl_url], db)
         return dl_url
 

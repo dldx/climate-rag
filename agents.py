@@ -634,7 +634,7 @@ def decide_to_search(state):
         return "web_search"
 
 
-def generate(state: GraphState):
+def generate(state: GraphState) -> GraphState:
     """
     Generate answer
 
@@ -676,13 +676,15 @@ def generate(state: GraphState):
 
     llm = get_chatbot(state["llm"])
 
-    # Chain
+    # LLM Chain
     rag_chain = prompt | llm | StrOutputParser()
 
+    # Format context
     context = format_docs(documents)
 
-    # Length of context
+    # Calculate length of context
     context_length = len(enc.encode(context))
+    # Reduce context if too long to fit within token window
     if context_length > MAX_TOKEN_LENGTH:
         print("Length of context too long, truncating: ", len(enc.encode(context)))
         print("Original Length: ", len(context))
@@ -693,10 +695,13 @@ def generate(state: GraphState):
         context = context[:-reduced_size]
         print("Reduced Length: ", len(context), len(enc.encode(context)))
 
-    # RAG generation
+    # Generate answer given context and question
     generation = rag_chain.invoke(
         {"context": context, "question": state["question_en"]}
     )
+
+    # Save generated answer to cache
+
 
     state["generation"] = generation
     state["documents"] = documents
