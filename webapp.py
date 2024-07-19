@@ -417,46 +417,11 @@ footer {
     # )
 
     # Upload new document
+    from tools import upload_document
 
-    def upload_document(file):
-        import requests
-        from tools import add_urls_to_db_firecrawl
-        import shutil
-        UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
-        DOMAIN = os.environ.get("DOMAIN", "")
-
-        filename = file.split("/")[-1]
-        # if UPLOAD_FILE_PATH is specified, use it to save the uploaded file
-        if (UPLOAD_FILE_PATH != "") and (DOMAIN != ""):
-            local_path = os.path.join(UPLOAD_FILE_PATH, filename)
-            os.makedirs(UPLOAD_FILE_PATH, exist_ok=True)
-            # Check if file already exists
-            if os.path.exists(local_path):
-                return f"File {filename} already exists! Rename the file and try again."
-            shutil.copyfile(file, local_path)
-            local_dl_url = f"{DOMAIN}/files/{filename}"
-            print("Serving from local folder at ", local_dl_url)
-            dl_url = local_dl_url
-
-        # Now upload the file to tmpfiles.org to load into firecrawl or jina
-        response = requests.post(
-            url="https://tmpfiles.org/api/v1/upload", files={"file": open(file, "rb")}
-        )
-        # Store filename with URL
-        tmpfiles_dl_url = (
-            "https://tmpfiles.org/dl/"
-            + response.json()["data"]["url"].replace("https://tmpfiles.org", "")
-            + "#"
-            + filename
-        )
-        print("Uploaded to tmpfiles.org at ", tmpfiles_dl_url)
-        if (UPLOAD_FILE_PATH == "") and (DOMAIN == ""):
-            dl_url = tmpfiles_dl_url
-        add_urls_to_db_firecrawl([tmpfiles_dl_url], db)
-        return dl_url
 
     new_file.upload(
-        fn=upload_document,
+        fn=lambda x: upload_document(x, db),
         inputs=[new_file],
         outputs=[search_input],
         queue=False,
