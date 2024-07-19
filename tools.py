@@ -170,7 +170,7 @@ def format_docs(docs):
     return "\n\n".join(
         "Source: {source}\nContent: {content}\n\n---".format(
             content=doc.page_content,
-            source=clean_urls([doc.metadata["source"]])[0] if "source" in doc.metadata.keys() else "",
+            source=clean_urls([doc.metadata["source"]], os.environ.get("STATIC_PATH", ""))[0] if "source" in doc.metadata.keys() else "",
         )
         for doc in docs
     )
@@ -314,11 +314,11 @@ def upload_document(file, db) -> str:
     import requests
     import shutil
     UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
-    DOMAIN = os.environ.get("DOMAIN", "")
+    STATIC_PATH = os.environ.get("STATIC_PATH", "")
 
     filename = file.split("/")[-1]
     # if UPLOAD_FILE_PATH is specified, use it to save the uploaded file
-    if (UPLOAD_FILE_PATH != "") and (DOMAIN != ""):
+    if (UPLOAD_FILE_PATH != "") and (STATIC_PATH != ""):
         local_path = os.path.join(UPLOAD_FILE_PATH, filename)
         os.makedirs(UPLOAD_FILE_PATH, exist_ok=True)
         # Check if file already exists

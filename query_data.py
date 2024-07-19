@@ -276,7 +276,7 @@ def run_query(
                             set(
                                 [
                                     (
-                                        " * " + clean_urls([doc.metadata["source"]])[0]
+                                        " * " + clean_urls([doc.metadata["source"]], os.environ.get("STATIC_PATH", ""))[0]
                                         if "source" in doc.metadata.keys()
                                         else ""
                                     )

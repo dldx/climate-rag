@@ -39,7 +39,7 @@ def get_valid_filename(name):
         raise AssertionError("Could not derive file name from '%s'" % name)
     return s
 
-def clean_urls(urls):
+def clean_urls(urls, static_path=""):
     """
     Clean a list of URLs by removing irrelevant domain names.
 
@@ -54,7 +54,7 @@ def clean_urls(urls):
 
     # Remove tmpfiles.org prefix
     pattern = r"https://r\.jina\.ai/https://tmpfiles\.org/dl/.+?#"
-    urls = urls.str.replace(pattern, "", regex=True)
+    urls = urls.str.replace(pattern, static_path, regex=True)
     # Remove jina.ai prefix
     urls = urls.str.replace("https://r.jina.ai/", "")
     return urls.tolist()
