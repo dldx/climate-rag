@@ -28,7 +28,7 @@ def download_latest_answer(questions, answers):
     md_to_pdf(answer, pdf_path)
     pdf_to_docx(pdf_path, docx_path)
 
-    if (os.environ.get("STATIC_PATH", "") != "") and (os.environ.get("UPLOAD_PATH", "") != ""):
+    if (os.environ.get("STATIC_PATH", "") != "") and (os.environ.get("UPLOAD_FILE_PATH", "") != ""):
         # Copy the files to the static path
         os.makedirs(f"{os.environ.get('UPLOAD_FILE_PATH')}/outputs", exist_ok=True)
         shutil.copy(pdf_path, f"{os.environ.get('UPLOAD_FILE_PATH')}/outputs/{filename}.pdf")
