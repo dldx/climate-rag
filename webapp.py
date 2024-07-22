@@ -1,17 +1,27 @@
+import logging
+from typing import List, Tuple
 import gradio as gr
 from dotenv import load_dotenv
 import os
 import shutil
+import hashlib
 load_dotenv()
 
 from helpers import clean_urls
 from query_data import query_source_documents, run_query
-from tools import get_vector_store
+from tools import get_vector_store, upload_file
 
 db = get_vector_store()
 
-def download_latest_answer(questions, answers):
-    from ulid import ULID
+def download_latest_answer(questions: List[str], answers: List[str]) -> Tuple[gr.DownloadButton, gr.DownloadButton]:
+    """
+    Returns the download buttons for the latest answer as PDF or DOCX.
+
+    Args:
+        questions (List[str]): The list of questions.
+        answers (List[str]): The list of answers.
+    """
+
     from helpers import md_to_pdf, pdf_to_docx, get_valid_filename
 
     if len(answers) == 0 or len(questions) > len(answers):
@@ -19,23 +29,38 @@ def download_latest_answer(questions, answers):
     question = get_valid_filename(questions[-1])
     answer = answers[-1]
 
+    # Calculate hash of the answer to use as part of the filename
+    answer_hash = hashlib.shake_256(answer.encode()).hexdigest(5)
     os.makedirs("tmp", exist_ok=True)
 
-    filename = f"{ULID()}_{question}"[:200]
+    filename = f"{question[:200]}_{answer_hash}"
     pdf_path = f"tmp/{filename}.pdf"
     docx_path = f"tmp/{filename}.docx"
 
     md_to_pdf(answer, pdf_path)
     pdf_to_docx(pdf_path, docx_path)
 
-    if (os.environ.get("STATIC_PATH", "") != "") and (os.environ.get("UPLOAD_FILE_PATH", "") != ""):
+    STATIC_PATH = os.environ.get("STATIC_PATH", "")
+    UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
+    USE_S3 = os.environ.get("USE_S3", False) == "True"
+
+    if (STATIC_PATH != "") and (UPLOAD_FILE_PATH != ""):
         # Copy the files to the static path
-        os.makedirs(f"{os.environ.get('UPLOAD_FILE_PATH')}/outputs", exist_ok=True)
-        shutil.copy(pdf_path, f"{os.environ.get('UPLOAD_FILE_PATH')}/outputs/{filename}.pdf")
-        shutil.copy(docx_path, f"{os.environ.get('UPLOAD_FILE_PATH')}/outputs/{filename}.docx")
+        os.makedirs(f"{UPLOAD_FILE_PATH}/outputs", exist_ok=True)
+        shutil.copy(pdf_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.pdf")
+        shutil.copy(docx_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.docx")
         # Serve the files from the static path instead
-        pdf_download_url = f"{os.environ.get('STATIC_PATH')}/outputs/{filename}.pdf"
-        docx_download_url = f"{os.environ.get('STATIC_PATH')}/outputs/{filename}.docx"
+        pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
+        docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
+    elif (STATIC_PATH != "") and (USE_S3 == "True"):
+        # Upload the files to S3
+        if not upload_file(file_name=pdf_path, bucket=os.environ.get("dldx", ""), path="/outputs/", object_name=f"{filename}.pdf"):
+            logging.error(f"Failed to upload {pdf_path} to S3")
+        if not upload_file(file_name=docx_path,bucket=os.environ.get("dldx", ""), path="/outputs/", object_name= f"{filename}.docx"):
+            logging.error(f"Failed to upload {docx_path} to S3")
+        # Serve the files from S3
+        pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
+        docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
     else:
         pdf_download_url = pdf_path
         docx_download_url = docx_path
@@ -229,12 +254,13 @@ footer {
                     download_word_button = gr.DownloadButton(icon="static/ri--file-word-line.svg", label="Download DOCX", size="sm", scale=1, visible=False)
                     download_pdf_button = gr.DownloadButton(icon="static/ri--file-pdf-line.svg", label="Download PDF", size="sm", scale=1, visible=False)
                     clear = gr.ClearButton([chat_input, chatbot], scale=5)
-    with gr.Tab("Documents"):
+    with gr.Tab("Documents", elem_classes=["h-full"]):
         with gr.Row():
             gr.Markdown("## Add new documents")
         with gr.Row():
-            new_file = gr.File(label="Upload documents", file_types=["pdf", "PDF"], file_count='multiple', type='filepath')
-            with gr.Column():
+            with gr.Column(scale=1):
+                new_file = gr.File(label="Upload documents", file_types=["pdf", "PDF"], file_count='multiple', type='filepath')
+            with gr.Column(scale=4):
                 url_input = gr.Textbox(placeholder="Enter a URL", show_label=False)
                 add_button = gr.Button(value="Add/View")
                 selected_source = gr.Markdown(height=200)
