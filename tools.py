@@ -61,7 +61,7 @@ def check_page_content_for_errors(page_content: str):
     else:
         return None
 
-def add_urls_to_db(urls: List[str], db: Chroma) -> List[Document]:
+def add_urls_to_db(urls: List[str], db: Chroma, use_firecrawl: bool = False) -> List[Document]:
     """Add a list of URLs to the database.
 
     Decide which loader to use based on the URL.
@@ -69,11 +69,25 @@ def add_urls_to_db(urls: List[str], db: Chroma) -> List[Document]:
 
     docs = []
     for url in urls:
-        if url.endswith(".md"):
-            # Can directly download markdown without any processing
-            docs += add_urls_to_db_html([url], db)
+        ids_existing = r.keys(f"*{url}")
+        # Only add url if it is not already in the database
+        if len(ids_existing) == 0:
+            if url.endswith(".md"):
+                # Can directly download markdown without any processing
+                docs += add_urls_to_db_html([url], db)
+            else:
+                if use_firecrawl:
+                    docs += add_urls_to_db_firecrawl([url], db)
+                else:
+                    if "pdf" in url:
+                        docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
+                    elif url.lower().endswith("md"):
+                        docs += add_urls_to_db_html([url], db)
+                    else:
+                        # use local chrome loader instead
+                        docs += add_urls_to_db_chrome([url], db)
         else:
-            docs += add_urls_to_db_firecrawl([url], db)
+            print("Already in database: ", url)
     return docs
 
 def add_urls_to_db_html(urls: List[str], db):

@@ -509,46 +509,34 @@ def add_urls_to_database(state: GraphState) -> GraphState:
 
     # Add web search results to database
     # Filter only web search results
-    use_firecrawl = True
-    if use_firecrawl:
-        # Get list of urls
-        urls = list(
-            map(
-                lambda x: x.metadata["source"],
-                filter(lambda x: x.metadata.get("web_search") == True, documents),
-            )
+    use_firecrawl = False
+    # Get list of urls
+    urls = list(
+        map(
+            lambda x: x.metadata["source"],
+            filter(lambda x: x.metadata.get("web_search") == True, documents),
         )
-        # Add urls to database
-        docs = add_urls_to_db_firecrawl(urls, db)
-        # Check if docs need to be further crawled
-        if state["do_crawl"]:
-            for doc in docs:
-                crawl_decision = crawl_or_not(doc, state["question"])
-                print(crawl_decision)
-                if crawl_decision.crawl:
-                    if len(crawl_decision.urls_to_scrape) > 10:
-                        print("Too many urls to scrape, only scraping first 10")
-                    add_urls_to_db_firecrawl(
-                        list(
-                            filter(
-                                lambda x: True,  # "fjord-coffee.de" in x,
-                                crawl_decision.urls_to_scrape,
-                            )
-                        )[:10],
-                        db,
-                    )
-    else:
-        # Get list of urls
-        urls = list(
-            map(
-                lambda x: "https://r.jina.ai/" + x.metadata["source"],
-                filter(
-                    lambda x: x.metadata.get("web_search") == True, state["documents"]
-                ),
-            )
-        )
-        # Add urls to database
-        add_urls_to_db(urls, db)
+    )
+    # Add urls to database
+    docs = add_urls_to_db(urls, db, use_firecrawl=use_firecrawl)
+    # Check if docs need to be further crawled
+    if state["do_crawl"]:
+        for doc in docs:
+            crawl_decision = crawl_or_not(doc, state["question"])
+            print(crawl_decision)
+            if crawl_decision.crawl:
+                if len(crawl_decision.urls_to_scrape) > 10:
+                    print("Too many urls to scrape, only scraping first 10")
+                add_urls_to_db(
+                    list(
+                        filter(
+                            lambda x: True,
+                            crawl_decision.urls_to_scrape,
+                        )
+                    )[:10],
+                    db,
+                    use_firecrawl=use_firecrawl,
+                )
     state["web_search_completed"] = True
 
     return {"web_search_completed": state["web_search_completed"]}
