@@ -1,19 +1,62 @@
 import logging
+import msgspec
 from typing import List, Tuple
 import gradio as gr
 from dotenv import load_dotenv
 import os
 import shutil
 import hashlib
+from langchain.schema import Document
+
 load_dotenv()
 
-from helpers import clean_urls
+from helpers import clean_urls, generate_qa_id
 from query_data import query_source_documents, run_query
 from tools import get_vector_store, upload_file
+from cache import r
 
 db = get_vector_store()
 
-def download_latest_answer(questions: List[str], answers: List[str]) -> Tuple[gr.DownloadButton, gr.DownloadButton]:
+
+def compile_answer(
+    generation: str, initial_question: str, sources: List[str]
+) -> str:
+    """
+    Compile the answer from the generation and the sources.
+
+    Args:
+        generation (str): The generated answer.
+        documents (List[GraphState]): The list of documents.
+
+    Returns:
+        str: The compiled answer.
+    """
+    answer = (
+        f"""# {initial_question}\n\n"""
+        + generation
+        + "\n\n**Sources:**\n\n"
+        + "\n\n".join(
+            set(
+                [
+                    (
+                        " * "
+                        + clean_urls(
+                            [source], os.environ.get("STATIC_PATH", "")
+                        )[0]
+                    )
+                    for source in sources
+                    if source is not None
+                ]
+            )
+        )
+    )
+
+    return answer
+
+
+def download_latest_answer(
+    questions: List[str], answers: List[str]
+) -> Tuple[gr.DownloadButton, gr.DownloadButton]:
     """
     Returns the download buttons for the latest answer as PDF or DOCX.
 
@@ -27,13 +70,12 @@ def download_latest_answer(questions: List[str], answers: List[str]) -> Tuple[gr
     if len(answers) == 0 or len(questions) > len(answers):
         return gr.DownloadButton(visible=False), gr.DownloadButton(visible=False)
     question = get_valid_filename(questions[-1])
-    answer = answers[-1]
+    qa_id = answers[-1]
 
-    # Calculate hash of the answer to use as part of the filename
-    answer_hash = hashlib.shake_256(answer.encode()).hexdigest(5)
+    filename = qa_id
+    qa_map = r.hgetall(f"climate-rag::answer:{qa_id}")
+    answer = compile_answer(qa_map["answer"], qa_map["question"], msgspec.json.decode(qa_map["sources"]))
     os.makedirs("tmp", exist_ok=True)
-
-    filename = f"{question[:200]}_{answer_hash}"
     pdf_path = f"tmp/{filename}.pdf"
     docx_path = f"tmp/{filename}.docx"
 
@@ -54,9 +96,19 @@ def download_latest_answer(questions: List[str], answers: List[str]) -> Tuple[gr
         docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
     elif (STATIC_PATH != "") and (USE_S3 == "True"):
         # Upload the files to S3
-        if not upload_file(file_name=pdf_path, bucket=os.environ.get("dldx", ""), path="/outputs/", object_name=f"{filename}.pdf"):
+        if not upload_file(
+            file_name=pdf_path,
+            bucket=os.environ.get("dldx", ""),
+            path="/outputs/",
+            object_name=f"{filename}.pdf",
+        ):
             logging.error(f"Failed to upload {pdf_path} to S3")
-        if not upload_file(file_name=docx_path,bucket=os.environ.get("dldx", ""), path="/outputs/", object_name= f"{filename}.docx"):
+        if not upload_file(
+            file_name=docx_path,
+            bucket=os.environ.get("dldx", ""),
+            path="/outputs/",
+            object_name=f"{filename}.docx",
+        ):
             logging.error(f"Failed to upload {docx_path} to S3")
         # Serve the files from S3
         pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
@@ -65,7 +117,9 @@ def download_latest_answer(questions: List[str], answers: List[str]) -> Tuple[gr
         pdf_download_url = pdf_path
         docx_download_url = docx_path
 
-    return gr.DownloadButton(value=docx_download_url, visible=True), gr.DownloadButton(value=pdf_download_url, visible=True)
+    return gr.DownloadButton(value=docx_download_url, visible=True), gr.DownloadButton(
+        value=pdf_download_url, visible=True
+    )
 
 
 def climate_chat(
@@ -114,15 +168,28 @@ def climate_chat(
             history=history,
             initial_generation=happy_with_answer,
         ):
-            if (key == "improve_question") and improve_question:
-                yield f"""**Improved question:** {value["question"]}""" + ("""
+            if key == "improve_question":
+                if improve_question:
+                    yield f"""**Improved question:** {value["question"]}""" + (
+                        """
 
-                **Better question (en):** {value["question_en"]}""" if language != "en" else ""), questions, answers
+                    **Better question (en):** {value["question_en"]}"""
+                        if language != "en"
+                        else ""
+                    ), questions, answers
+                else:
+                    yield None, questions, answers
             elif key == "formulate_query":
                 yield f"""**Generated search queries:**\n\n""" + "\n".join(
-                    [(f" * {query.query} ({query.query_en})" if language != "en" else f" * {query.query_en}") for query in value["search_prompts"]]
+                    [
+                        (
+                            f" * {query.query} ({query.query_en})"
+                            if language != "en"
+                            else f" * {query.query_en}"
+                        )
+                        for query in value["search_prompts"]
+                    ]
                 ), questions, answers
-
 
             elif key == "retrieve_from_database":
                 yield "**Retrieving documents from database...**", questions, answers
@@ -139,24 +206,11 @@ def climate_chat(
                 yield f"""**Reranking documents...**""", questions, answers
 
             elif key == "generate":
-                answer = (
-                    f"""# {value["initial_question"]}\n\n"""
-                    + value["generation"]
-                    + "\n\n**Sources:**\n\n"
-                    + "\n\n".join(
-                        set(
-                            [
-                                (
-                                    " * " + clean_urls([doc.metadata["source"]], os.environ.get("STATIC_PATH", ""))[0]
-                                    if "source" in doc.metadata.keys()
-                                    else ""
-                                )
-                                for doc in value["documents"]
-                            ]
-                        )
-                    )
-                )
-                answers.append(answer)
+                answers.append(value["qa_id"])
+                answer = compile_answer(
+                    value["generation"],
+                    value["initial_question"],
+                    [doc.metadata.get("source") for doc in value["documents"]])
 
                 yield answer, questions, answers
             elif key == "add_urls_to_database":
@@ -252,15 +306,32 @@ footer {
                     )
                 with gr.Row():
                     stop_button = gr.Button(value="Stop", variant="stop", scale=5)
-                    download_word_button = gr.DownloadButton(icon="static/ri--file-word-line.svg", label="Download DOCX", size="sm", scale=1, visible=False)
-                    download_pdf_button = gr.DownloadButton(icon="static/ri--file-pdf-line.svg", label="Download PDF", size="sm", scale=1, visible=False)
+                    download_word_button = gr.DownloadButton(
+                        icon="static/ri--file-word-line.svg",
+                        label="Download DOCX",
+                        size="sm",
+                        scale=1,
+                        visible=False,
+                    )
+                    download_pdf_button = gr.DownloadButton(
+                        icon="static/ri--file-pdf-line.svg",
+                        label="Download PDF",
+                        size="sm",
+                        scale=1,
+                        visible=False,
+                    )
                     clear = gr.ClearButton([chat_input, chatbot], scale=5)
     with gr.Tab("Documents", elem_classes=["h-full"]):
         with gr.Row():
             gr.Markdown("## Add new documents")
         with gr.Row():
             with gr.Column(scale=1):
-                new_file = gr.File(label="Upload documents", file_types=["pdf", "PDF", "md", "MD"], file_count='multiple', type='filepath')
+                new_file = gr.File(
+                    label="Upload documents",
+                    file_types=["pdf", "PDF", "md", "MD"],
+                    file_count="multiple",
+                    type="filepath",
+                )
             with gr.Column(scale=4):
                 url_input = gr.Textbox(placeholder="Enter a URL", show_label=False)
                 add_button = gr.Button(value="Add/View")
@@ -313,7 +384,12 @@ footer {
         initial_generation,
     ):
         if len(chat_history) == 0:
-            chat_history.append([None, "Hello! I'm here to help you with climate-related questions. What would you like to know?"])
+            chat_history.append(
+                [
+                    None,
+                    "Hello! I'm here to help you with climate-related questions. What would you like to know?",
+                ]
+            )
             return chat_history, chat_history, questions, None
         message = chat_history[-1][0]
         bot_messages = climate_chat(
@@ -329,7 +405,9 @@ footer {
         )
         for bot_message, questions, answers in bot_messages:
             chat_history.append([None, bot_message])
-            yield chat_history, chat_history, questions, answers, *download_latest_answer(questions, answers)
+            yield chat_history, chat_history, questions, answers, *download_latest_answer(
+                questions, answers
+            )
 
     converse_event = chat_input.submit(
         fn=user,
@@ -346,9 +424,16 @@ footer {
             improve_question_checkbox,
             do_rerank_checkbox,
             language_dropdown,
-            do_initial_generation_checkbox
+            do_initial_generation_checkbox,
         ],
-        [chatbot, chat_state, questions_state, answers_state, download_word_button, download_pdf_button],
+        [
+            chatbot,
+            chat_state,
+            questions_state,
+            answers_state,
+            download_word_button,
+            download_pdf_button,
+        ],
     )
 
     def stop_querying(questions):
@@ -373,9 +458,6 @@ footer {
         fn=lambda: (None, []), inputs=None, outputs=[chatbot, chat_state], queue=False
     )
 
-
-
-
     def filter_documents(search_query):
         from query_data import query_source_documents
 
@@ -392,7 +474,13 @@ footer {
             )[["source"]]
             search_results["source"] = clean_urls(search_results["source"].tolist())
             # Remove static path to simplify display
-            search_results["source"] = search_results["source"].apply(lambda x: ("🗎 " + x.split("/")[-1]) if os.environ.get("STATIC_PATH", "") in str(x) else x)
+            search_results["source"] = search_results["source"].apply(
+                lambda x: (
+                    ("🗎 " + x.split("/")[-1])
+                    if os.environ.get("STATIC_PATH", "") in str(x)
+                    else x
+                )
+            )
 
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
@@ -461,9 +549,8 @@ footer {
     # Upload new document
     from tools import upload_documents
 
-
     new_file.upload(
-        fn=lambda x: upload_documents(x, db)[-1], # Return the last document added only
+        fn=lambda x: upload_documents(x, db)[-1],  # Return the last document added only
         inputs=[new_file],
         outputs=[search_input],
         queue=False,

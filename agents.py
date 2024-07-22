@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import msgspec
+from helpers import generate_qa_id
 from schemas import SearchQuery, SearchQueries
 from typing import Any, List, Literal
 from langchain.schema import Document
@@ -42,7 +44,7 @@ class GraphState(TypedDict):
         documents: list of documents
     """
 
-    llm: Literal["gpt-4o", 'gpt-3.5-turbo-16k', "mistral", "claude"]
+    llm: Literal["gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude"]
     initial_question: str
     question: str
     question_en: str
@@ -64,6 +66,7 @@ class GraphState(TypedDict):
     initial_generation: bool
     history: List[Any]
     mode: Literal["gui", "cli"]
+    qa_id: str
 
 
 def get_current_utc_datetime():
@@ -238,7 +241,10 @@ def retrieve(state: GraphState) -> GraphState:
     if rag_filter == "":
         rag_filter = None
     if rag_filter is not None:
-        source_list = [uri.replace("climate-rag::source:", "") for uri in r.keys(f"climate-rag::source:{rag_filter}")]
+        source_list = [
+            uri.replace("climate-rag::source:", "")
+            for uri in r.keys(f"climate-rag::source:{rag_filter}")
+        ]
         if len(source_list) == 0:
             print("No source documents found in database")
             return {"documents": [], "search_prompts": state["search_prompts"]}
@@ -689,9 +695,31 @@ def generate(state: GraphState) -> GraphState:
     )
 
     # Save generated answer to cache
-
+    qa_id = generate_qa_id(state["initial_question"], generation)
+    qa_map = {
+        "answer": generation,
+        "question": state["initial_question"],
+        "doc_ids": msgspec.json.encode([doc.metadata["id"] for doc in documents]),
+        "sources": msgspec.json.encode(
+            list(
+                set(
+                    [
+                        (
+                            doc.metadata["source"]
+                            if "source" in doc.metadata.keys()
+                            else ""
+                        )
+                        for doc in documents
+                    ]
+                )
+            )
+        ),
+        "date_added": int(datetime.timestamp(datetime.now(timezone.utc))),
+    }
+    r.hset(f"climate-rag::answer:{qa_id}", mapping=qa_map)
 
     state["generation"] = generation
     state["documents"] = documents
+    state["qa_id"] = qa_id
 
     return state

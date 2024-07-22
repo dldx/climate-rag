@@ -58,3 +58,21 @@ def clean_urls(urls, static_path=""):
     # Remove jina.ai prefix
     urls = urls.str.replace("https://r.jina.ai/", "")
     return urls.tolist()
+
+def generate_qa_id(question: str, answer: str) -> str:
+    """
+    Return the question/answer ID from a given answer string by calculating the hash of the answer string and appending it to the question.
+
+    Args:
+        question (str): The question string.
+        answer (str): The answer string.
+
+    Returns:
+        str: The question/answer ID.
+    """
+    import hashlib
+
+    answer_hash = hashlib.shake_256(answer.encode()).hexdigest(5)
+    qa_id = f"{question[:200]}_{answer_hash}"
+
+    return qa_id
