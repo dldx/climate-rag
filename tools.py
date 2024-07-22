@@ -61,8 +61,22 @@ def check_page_content_for_errors(page_content: str):
     else:
         return None
 
+def add_urls_to_db(urls: List[str], db: Chroma) -> List[Document]:
+    """Add a list of URLs to the database.
 
-def add_urls_to_db(urls: List[str], db):
+    Decide which loader to use based on the URL.
+    """
+
+    docs = []
+    for url in urls:
+        if url.endswith(".md"):
+            # Can directly download markdown without any processing
+            docs += add_urls_to_db_html([url], db)
+        else:
+            docs += add_urls_to_db_firecrawl([url], db)
+    return docs
+
+def add_urls_to_db_html(urls: List[str], db):
     from langchain_community.document_loaders import AsyncHtmlLoader
 
     docs = []
@@ -138,9 +152,9 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
                     # use local chrome loader instead
                     docs += add_urls_to_db_chrome([url], db)
                 elif "502" in str(e):
-                    docs += add_urls_to_db(["https://r.jina.ai/" + url], db)
+                    docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
                 else:
-                    docs += add_urls_to_db(["https://r.jina.ai/" + url], db)
+                    docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
         else:
             print("Already in database: ", url)
 
@@ -429,7 +443,7 @@ def upload_documents(files: str | List[str], db) -> List[str]:
                 + filename
             )
             print("Uploaded to tmpfiles.org at ", dl_url)
-        add_urls_to_db_firecrawl([dl_url], db)
+        add_urls_to_db([dl_url], db)
         filenames.append(filename)
     return filenames
 

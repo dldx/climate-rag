@@ -168,6 +168,7 @@ def climate_chat(
 
 
 with gr.Blocks(
+    title="Climate RAG",
     fill_height=True,
     css="""
 .h-full {
@@ -259,7 +260,7 @@ footer {
             gr.Markdown("## Add new documents")
         with gr.Row():
             with gr.Column(scale=1):
-                new_file = gr.File(label="Upload documents", file_types=["pdf", "PDF"], file_count='multiple', type='filepath')
+                new_file = gr.File(label="Upload documents", file_types=["pdf", "PDF", "md", "MD"], file_count='multiple', type='filepath')
             with gr.Column(scale=4):
                 url_input = gr.Textbox(placeholder="Enter a URL", show_label=False)
                 add_button = gr.Button(value="Add/View")
@@ -390,6 +391,8 @@ footer {
                 db, f"*{search_query}*", print_output=False
             )[["source"]]
             search_results["source"] = clean_urls(search_results["source"].tolist())
+            # Remove static path to simplify display
+            search_results["source"] = search_results["source"].apply(lambda x: ("🗎 " + x.split("/")[-1]) if os.environ.get("STATIC_PATH", "") in str(x) else x)
 
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
@@ -433,9 +436,9 @@ footer {
 
     # Add new documents
     def add_document(url):
-        from tools import add_urls_to_db_firecrawl
+        from tools import add_urls_to_db
 
-        add_urls_to_db_firecrawl([url], db)
+        add_urls_to_db([url], db)
 
         # Retrieve source markdown
         page_content = query_source_documents(db, f"*{url}*", print_output=False)[
