@@ -94,18 +94,18 @@ def download_latest_answer(
         # Serve the files from the static path instead
         pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
         docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
-    elif (STATIC_PATH != "") and (USE_S3 == "True"):
+    elif (STATIC_PATH != "") and (USE_S3 == True):
         # Upload the files to S3
         if not upload_file(
             file_name=pdf_path,
-            bucket=os.environ.get("dldx", ""),
+            bucket=os.environ.get("S3_BUCKET", ""),
             path="/outputs/",
             object_name=f"{filename}.pdf",
         ):
             logging.error(f"Failed to upload {pdf_path} to S3")
         if not upload_file(
             file_name=docx_path,
-            bucket=os.environ.get("dldx", ""),
+            bucket=os.environ.get("S3_BUCKET", ""),
             path="/outputs/",
             object_name=f"{filename}.docx",
         ):
@@ -116,6 +116,9 @@ def download_latest_answer(
     else:
         pdf_download_url = pdf_path
         docx_download_url = docx_path
+
+    r.hset("climate-rag::answer:" + filename, "pdf_uri", pdf_download_url)
+    r.hset("climate-rag::answer:" + filename, "docx_uri", docx_download_url)
 
     return gr.DownloadButton(value=docx_download_url, visible=True), gr.DownloadButton(
         value=pdf_download_url, visible=True
@@ -228,6 +231,12 @@ with gr.Blocks(
 .h-full {
     height: 85vh;
 }
+.h-20 {
+    height: 20px;
+}
+.scroll-y {
+overflow-y: scroll;
+}
 
 .gradio-container {
     padding: 0 !important;
@@ -293,7 +302,7 @@ footer {
                 )
 
             with gr.Column(scale=4):
-                gr.Markdown("## Chat")
+                chat_header = gr.Markdown("## Chat")
                 chatbot = gr.Chatbot(elem_id="chatbot", scale=4, show_label=False)
                 with gr.Row():
                     chat_input = gr.MultimodalTextbox(
@@ -321,6 +330,20 @@ footer {
                         visible=False,
                     )
                     clear = gr.ClearButton([chat_input, chatbot], scale=5)
+    with gr.Tab("Previous queries", elem_classes=["h-full", "scroll-y"]) as previous_queries_tab:
+        with gr.Row():
+            query_history_display = gr.Dataset(
+                components=[
+                    gr.Textbox(visible=False),
+                    gr.Markdown(visible=False),
+                    gr.Markdown(visible=False, elem_classes=["scroll-y", "h-20"]),
+                    gr.HTML(visible=False),
+                    gr.HTML(visible=False),
+                ],
+                label="History",
+                headers=["Date", "Question", "Answer", "PDF", "DOCX"],
+            )
+
     with gr.Tab("Documents", elem_classes=["h-full"]):
         with gr.Row():
             gr.Markdown("## Add new documents")
@@ -355,9 +378,6 @@ footer {
 
     ### Define the logic
     ## Tab 1: Chat
-    def update_questions(questions):
-        print("Updating questions")
-        return [gr.Checkbox(label=q) for q in questions]
 
     def user(user_message, history):
         if (len(user_message["text"]) > 10) or (user_message["text"]) in ["y", "n"]:
@@ -407,7 +427,7 @@ footer {
             chat_history.append([None, bot_message])
             yield chat_history, chat_history, questions, answers, *download_latest_answer(
                 questions, answers
-            )
+            ), f"## Chat\n### {questions[-1]}"
 
     converse_event = chat_input.submit(
         fn=user,
@@ -433,25 +453,20 @@ footer {
             answers_state,
             download_word_button,
             download_pdf_button,
+            chat_header
         ],
     )
 
     def stop_querying(questions):
         # Remove the last question
         questions.pop()
-        return questions
+        return questions, "## Chat"
 
     stop_button.click(
         fn=stop_querying,
         inputs=[questions_state],
-        outputs=[questions_state],
+        outputs=[questions_state, chat_header],
         cancels=[converse_event],
-        queue=False,
-    )
-    questions_state.change(
-        fn=update_questions,
-        inputs=[questions_state],
-        outputs=[doc_sources],
         queue=False,
     )
     clear.click(
@@ -491,7 +506,29 @@ footer {
         queue=False,
     )
 
-    ## Tab 2: Documents
+    ## Tab 2: Query history
+    def get_query_history(evt: gr.EventData):
+        import pandas as pd
+        import msgspec
+        import datetime
+
+        all_answers = []
+        for key in r.keys("*:answer:*"):
+            answer = r.hgetall(key)
+            answer["sources"] = msgspec.json.decode(answer["sources"])
+            answer["doc_ids"] = msgspec.json.decode(answer["doc_ids"])
+            answer["date_added"] = datetime.datetime.fromtimestamp(int(answer["date_added"]), tz=datetime.UTC).strftime('%Y-%m-%d')
+            all_answers.append(answer)
+
+        df = pd.DataFrame.from_records(all_answers).reindex(["date_added", "question", "answer", "pdf_uri", "docx_uri"], axis=1).sort_values("date_added", ascending=False)
+        df.pdf_uri = "<a target='_blank' href='" + df.pdf_uri.astype(str).fillna("") + "'>PDF</a>"
+        df.docx_uri = "<a target='_blank' href='" + df.docx_uri.astype(str).fillna("") + "'>DOCX</a>"
+
+        return gr.Dataset(samples=df.to_numpy().tolist())
+    previous_queries_tab.select(get_query_history, outputs=[query_history_display], queue=False)
+
+
+    ## Tab 3: Documents
     # Search documents
     def search_documents(search_query):
         from query_data import query_source_documents
@@ -564,6 +601,7 @@ footer {
         outputs=[new_file],
         queue=False,
     )
+
 
 demo.queue()
 demo.launch(inbrowser=True, show_api=False)
