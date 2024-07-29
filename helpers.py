@@ -1,4 +1,5 @@
 import pdf2docx
+import urllib.parse
 import re
 import pandas as pd
 from markdown_pdf import Section, MarkdownPdf
@@ -32,12 +33,11 @@ def pdf_to_docx(pdf_path: str, docx_path: str) -> str:
 
     return docx_path
 
-def get_valid_filename(name):
-    s = str(name).strip().replace(" ", "_")
-    s = re.sub(r"(?u)[^-\w.]", "", s)
-    if s in {"", ".", ".."}:
-        raise AssertionError("Could not derive file name from '%s'" % name)
-    return s
+def sanitize_url(url):
+    domain_part, filename_part = url.rsplit("/", 1)
+
+    return domain_part + "/" + urllib.parse.quote(filename_part)
+
 
 def clean_urls(urls, static_path=""):
     """

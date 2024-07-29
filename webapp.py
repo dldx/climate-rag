@@ -1,4 +1,7 @@
 import logging
+import urllib.parse
+from pathvalidate import sanitize_filename
+import humanize
 import msgspec
 from typing import List, Tuple
 import gradio as gr
@@ -10,7 +13,7 @@ from langchain.schema import Document
 
 load_dotenv()
 
-from helpers import clean_urls, generate_qa_id
+from helpers import clean_urls, generate_qa_id, sanitize_url
 from query_data import query_source_documents, run_query
 from tools import get_vector_store, upload_file
 from cache import r
@@ -18,9 +21,7 @@ from cache import r
 db = get_vector_store()
 
 
-def compile_answer(
-    generation: str, initial_question: str, sources: List[str]
-) -> str:
+def compile_answer(generation: str, initial_question: str, sources: List[str]) -> str:
     """
     Compile the answer from the generation and the sources.
 
@@ -38,12 +39,7 @@ def compile_answer(
         + "\n\n".join(
             set(
                 [
-                    (
-                        " * "
-                        + clean_urls(
-                            [source], os.environ.get("STATIC_PATH", "")
-                        )[0]
-                    )
+                    (" * " + clean_urls([source], os.environ.get("STATIC_PATH", ""))[0])
                     for source in sources
                     if source is not None
                 ]
@@ -65,64 +61,72 @@ def download_latest_answer(
         answers (List[str]): The list of answers.
     """
 
-    from helpers import md_to_pdf, pdf_to_docx, get_valid_filename
+    from helpers import md_to_pdf, pdf_to_docx
 
     if len(answers) == 0 or len(questions) > len(answers):
         return gr.DownloadButton(visible=False), gr.DownloadButton(visible=False)
-    question = get_valid_filename(questions[-1])
+    question = sanitize_filename(questions[-1])
     qa_id = answers[-1]
 
     filename = qa_id
     qa_map = r.hgetall(f"climate-rag::answer:{qa_id}")
-    answer = compile_answer(qa_map["answer"], qa_map["question"], msgspec.json.decode(qa_map["sources"]))
-    os.makedirs("tmp", exist_ok=True)
-    pdf_path = f"tmp/{filename}.pdf"
-    docx_path = f"tmp/{filename}.docx"
-
-    md_to_pdf(answer, pdf_path)
-    pdf_to_docx(pdf_path, docx_path)
-
-    STATIC_PATH = os.environ.get("STATIC_PATH", "")
-    UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
-    USE_S3 = os.environ.get("USE_S3", False) == "True"
-
-    if (STATIC_PATH != "") and (UPLOAD_FILE_PATH != ""):
-        # Copy the files to the static path
-        os.makedirs(f"{UPLOAD_FILE_PATH}/outputs", exist_ok=True)
-        shutil.copy(pdf_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.pdf")
-        shutil.copy(docx_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.docx")
-        # Serve the files from the static path instead
-        pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
-        docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
-    elif (STATIC_PATH != "") and (USE_S3 == True):
-        # Upload the files to S3
-        if not upload_file(
-            file_name=pdf_path,
-            bucket=os.environ.get("S3_BUCKET", ""),
-            path="/outputs/",
-            object_name=f"{filename}.pdf",
-        ):
-            logging.error(f"Failed to upload {pdf_path} to S3")
-        if not upload_file(
-            file_name=docx_path,
-            bucket=os.environ.get("S3_BUCKET", ""),
-            path="/outputs/",
-            object_name=f"{filename}.docx",
-        ):
-            logging.error(f"Failed to upload {docx_path} to S3")
-        # Serve the files from S3
-        pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
-        docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
+    # Check if PDF is already in redis cache
+    if qa_map.get("pdf_uri", None) is not None:
+        pdf_download_url = qa_map["pdf_uri"]
+        docx_download_url = qa_map["docx_uri"]
     else:
-        pdf_download_url = pdf_path
-        docx_download_url = docx_path
+        answer = compile_answer(
+            qa_map["answer"], qa_map["question"], msgspec.json.decode(qa_map["sources"])
+        )
+        os.makedirs("tmp", exist_ok=True)
+        pdf_path = f"tmp/{filename}.pdf"
+        docx_path = f"tmp/{filename}.docx"
 
-    r.hset("climate-rag::answer:" + filename, "pdf_uri", pdf_download_url)
-    r.hset("climate-rag::answer:" + filename, "docx_uri", docx_download_url)
+        md_to_pdf(answer, pdf_path)
+        pdf_to_docx(pdf_path, docx_path)
 
-    return gr.DownloadButton(value=docx_download_url, visible=True), gr.DownloadButton(
-        value=pdf_download_url, visible=True
-    )
+        STATIC_PATH = os.environ.get("STATIC_PATH", "")
+        UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
+        USE_S3 = os.environ.get("USE_S3", False) == "True"
+
+        if (STATIC_PATH != "") and (UPLOAD_FILE_PATH != ""):
+            # Copy the files to the static path
+            os.makedirs(f"{UPLOAD_FILE_PATH}/outputs", exist_ok=True)
+            shutil.copy(pdf_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.pdf")
+            shutil.copy(docx_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.docx")
+            # Serve the files from the static path instead
+            pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
+            docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
+        elif (STATIC_PATH != "") and (USE_S3 == True):
+            # Upload the files to S3
+            if not upload_file(
+                file_name=pdf_path,
+                bucket=os.environ.get("S3_BUCKET", ""),
+                path="/outputs/",
+                object_name=f"{filename}.pdf",
+            ):
+                logging.error(f"Failed to upload {pdf_path} to S3")
+            if not upload_file(
+                file_name=docx_path,
+                bucket=os.environ.get("S3_BUCKET", ""),
+                path="/outputs/",
+                object_name=f"{filename}.docx",
+            ):
+                logging.error(f"Failed to upload {docx_path} to S3")
+            # Serve the files from S3
+            pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
+            docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
+        else:
+            pdf_download_url = pdf_path
+            docx_download_url = docx_path
+
+        # Save PDF and DOCX locations to redis cache
+        r.hset("climate-rag::answer:" + qa_id, "pdf_uri", pdf_download_url)
+        r.hset("climate-rag::answer:" + qa_id, "docx_uri", docx_download_url)
+
+    return gr.DownloadButton(
+        value=sanitize_url(docx_download_url), visible=True
+    ), gr.DownloadButton(value=sanitize_url(pdf_download_url), visible=True)
 
 
 def climate_chat(
@@ -213,7 +217,8 @@ def climate_chat(
                 answer = compile_answer(
                     value["generation"],
                     value["initial_question"],
-                    [doc.metadata.get("source") for doc in value["documents"]])
+                    [doc.metadata.get("source") for doc in value["documents"]],
+                )
 
                 yield answer, questions, answers
             elif key == "add_urls_to_database":
@@ -330,7 +335,9 @@ footer {
                         visible=False,
                     )
                     clear = gr.ClearButton([chat_input, chatbot], scale=5)
-    with gr.Tab("Previous queries", elem_classes=["h-full", "scroll-y"]) as previous_queries_tab:
+    with gr.Tab(
+        "Previous queries", elem_classes=["h-full", "scroll-y"]
+    ) as previous_queries_tab:
         with gr.Row():
             query_history_display = gr.Dataset(
                 components=[
@@ -453,7 +460,7 @@ footer {
             answers_state,
             download_word_button,
             download_pdf_button,
-            chat_header
+            chat_header,
         ],
     )
 
@@ -517,16 +524,42 @@ footer {
             answer = r.hgetall(key)
             answer["sources"] = msgspec.json.decode(answer["sources"])
             answer["doc_ids"] = msgspec.json.decode(answer["doc_ids"])
-            answer["date_added"] = datetime.datetime.fromtimestamp(int(answer["date_added"]), tz=datetime.UTC).strftime('%Y-%m-%d')
+            answer["date_added_ts"] = humanize.naturaltime(
+                datetime.datetime.now(datetime.UTC)
+                - datetime.datetime.fromtimestamp(
+                    int(answer["date_added"]), tz=datetime.UTC
+                )
+            )
+            if "pdf_uri" in answer.keys():
+                answer["pdf_uri"] = sanitize_url(answer["pdf_uri"])
+            if "docx_uri" in answer.keys():
+                answer["docx_uri"] = sanitize_url(answer["docx_uri"])
             all_answers.append(answer)
 
-        df = pd.DataFrame.from_records(all_answers).reindex(["date_added", "question", "answer", "pdf_uri", "docx_uri"], axis=1).sort_values("date_added", ascending=False)
-        df.pdf_uri = "<a target='_blank' href='" + df.pdf_uri.astype(str).fillna("") + "'>PDF</a>"
-        df.docx_uri = "<a target='_blank' href='" + df.docx_uri.astype(str).fillna("") + "'>DOCX</a>"
+        df = (
+            pd.DataFrame.from_records(all_answers)
+            .sort_values("date_added", ascending=False)
+            .reindex(
+                ["date_added_ts", "question", "answer", "pdf_uri", "docx_uri"], axis=1
+            )
+            .iloc[:20]
+        )
+        df.pdf_uri = (
+            "<a target='_blank' href='"
+            + df.pdf_uri.astype(str).fillna("")
+            + "'>PDF</a>"
+        )
+        df.docx_uri = (
+            "<a target='_blank' href='"
+            + df.docx_uri.astype(str).fillna("")
+            + "'>DOCX</a>"
+        )
 
         return gr.Dataset(samples=df.to_numpy().tolist())
-    previous_queries_tab.select(get_query_history, outputs=[query_history_display], queue=False)
 
+    previous_queries_tab.select(
+        get_query_history, outputs=[query_history_display], queue=False
+    )
 
     ## Tab 3: Documents
     # Search documents
