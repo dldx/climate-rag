@@ -169,6 +169,7 @@ def query_source_documents(db, source_uri: str, print_output=True) -> pd.DataFra
     """
     keys = r.keys("climate-rag::source:" + source_uri)
     if len(keys) == 0:
+
         df = pd.DataFrame(
             columns=["source", "page_content", "raw_html", "date_added", "page_length"]
         )

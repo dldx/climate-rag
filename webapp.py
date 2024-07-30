@@ -256,6 +256,10 @@ overflow-y: scroll;
 footer {
     display:none !important
 }
+.xterm-viewport {
+width: max-content;
+height: max-content;
+}
 
 """,
 ) as demo:
@@ -385,8 +389,13 @@ footer {
             )
     with gr.Tab("Console"):
         log_file = "rag.log"
-        Log(log_file=log_file, dark=True, tail = 1000, elem_classes=["h-full"], min_width=1000)
-
+        Log(
+            log_file=log_file,
+            dark=True,
+            tail=1000,
+            elem_classes=["h-full"],
+            min_width=1000,
+        )
 
     ### Define the logic
     ## Tab 1: Chat
@@ -642,4 +651,4 @@ footer {
 
 
 demo.queue()
-demo.launch(inbrowser=True, show_api=False)
+demo.launch(inbrowser=False, show_api=False)

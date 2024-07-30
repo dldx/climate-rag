@@ -48,6 +48,8 @@ def check_page_content_for_errors(page_content: str):
         return "Access Denied"
     elif (page_content == "") or (len(page_content) < 600):
         return "Empty or minimal page content"
+    elif "Error: Page.goto: Timeout 30000ms exceeded." in page_content:
+        return "Timeout exceeded."
     elif bool(
         re.search(
             "(404*.not found)|(page not found)|(page cannot be found)|(HTTP404)|(File or directory not found.)|(Page You Requested Was Not Found)|(Error: Page.goto:)|(404 error)|(404 Not Found)|(404 Page Not Found)|(Error 404)|(404 - File or directory not found)|(HTTP Error 404)|(Not Found - 404)|(404 - Not Found)|(404 - Page Not Found)|(Error 404 - Not Found)|(404 - File Not Found)|(HTTP 404 - Not Found)|(404 - Resource Not Found)",
@@ -72,7 +74,7 @@ def add_urls_to_db(urls: List[str], db: Chroma, use_firecrawl: bool = False) -> 
         ids_existing = r.keys(f"*{url}")
         # Only add url if it is not already in the database
         if len(ids_existing) == 0:
-            if url.endswith(".md"):
+            if url.lower().endswith(".md"):
                 # Can directly download markdown without any processing
                 docs += add_urls_to_db_html([url], db)
             else:
@@ -81,8 +83,6 @@ def add_urls_to_db(urls: List[str], db: Chroma, use_firecrawl: bool = False) -> 
                 else:
                     if "pdf" in url:
                         docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
-                    elif url.lower().endswith("md"):
-                        docs += add_urls_to_db_html([url], db)
                     else:
                         # use local chrome loader instead
                         docs += add_urls_to_db_chrome([url], db)
@@ -197,16 +197,17 @@ def add_urls_to_db_chrome(urls: List[str], db):
     # nest_asyncio.apply()
 
     # Filter urls that are already in the database
-    filtered_urls = [url for url in urls if len(r.keys(url)) == 0]
+    filtered_urls = [url for url in urls if len(r.keys("climate-rag::source:" + url)) == 0]
     print("Adding to database: ", filtered_urls)
     loader = AsyncChromiumLoader(urls=filtered_urls)
     docs = loader.load()
     # Cache raw html in redis
     for doc in docs:
-        r.hset(
-            "climate-rag::source:" + doc.metadata["source"],
-            mapping={"raw_html": doc.page_content},
-        )
+        doc.metadata["raw_html"] = doc.page_content
+    #     r.hset(
+    #         "climate-rag::source:" + doc.metadata["source"],
+    #         mapping={"raw_html": doc.page_content},
+    #     )
     # Transform the documents to markdown
     html2text = Html2TextTransformer(ignore_links=False)
     docs_transformed = html2text.transform_documents(docs)
