@@ -85,7 +85,13 @@ def add_urls_to_db(urls: List[str], db: Chroma, use_firecrawl: bool = False) -> 
                         docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
                     else:
                         # use local chrome loader instead
-                        docs += add_urls_to_db_chrome([url], db)
+                        chrome_docs = add_urls_to_db_chrome([url], db)
+                        # Check if the URL has been successfully processed
+                        if url in list(map(lambda x: x.metadata["source"], chrome_docs)):
+                            docs += chrome_docs
+                        else:
+                            # Otherwise, use jina.ai loader
+                            docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
         else:
             print("Already in database: ", url)
     return docs
@@ -189,7 +195,7 @@ def add_doc_to_redis(r, doc):
     r.hset("climate-rag::source:" + doc_dict["source"], mapping=doc_dict)
 
 
-def add_urls_to_db_chrome(urls: List[str], db):
+def add_urls_to_db_chrome(urls: List[str], db) -> List[Document]:
     from chromium import AsyncChromiumLoader
     from langchain_community.document_transformers import Html2TextTransformer
     # import nest_asyncio
@@ -204,16 +210,12 @@ def add_urls_to_db_chrome(urls: List[str], db):
     # Cache raw html in redis
     for doc in docs:
         doc.metadata["raw_html"] = doc.page_content
-    #     r.hset(
-    #         "climate-rag::source:" + doc.metadata["source"],
-    #         mapping={"raw_html": doc.page_content},
-    #     )
     # Transform the documents to markdown
     html2text = Html2TextTransformer(ignore_links=False)
     docs_transformed = html2text.transform_documents(docs)
     for doc in docs_transformed:
         doc.metadata["date_added"] = datetime.datetime.now().isoformat()
-    docs_to_return = []
+    docs_to_return: List[Document] = []
     for doc in docs_transformed:
         page_errors = check_page_content_for_errors(doc.page_content)
         if page_errors:
@@ -223,7 +225,7 @@ def add_urls_to_db_chrome(urls: List[str], db):
             add_doc_to_redis(r, doc)
             chunks = split_documents([doc])
             add_to_chroma(db, chunks)
-            docs_to_return += doc
+            docs_to_return.append(doc)
 
     return docs_to_return
 
