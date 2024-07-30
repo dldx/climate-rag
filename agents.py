@@ -290,17 +290,21 @@ def rerank_docs(state: GraphState) -> GraphState:
     import cohere
 
     co = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
-    reranked_results = co.rerank(
-        model="rerank-multilingual-v3.0",
-        query=question,
-        documents=[doc.page_content for doc in documents],
-    )
-    state["documents"] = [
-        documents[docIndex.index]
-        for docIndex in reranked_results.results
-        if docIndex.relevance_score > 0.05
-    ]
-    print("Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]])
+    try:
+        reranked_results = co.rerank(
+            model="rerank-multilingual-v3.0",
+            query=question,
+            documents=[doc.page_content for doc in documents],
+        )
+        state["documents"] = [
+            documents[docIndex.index]
+            for docIndex in reranked_results.results
+            if docIndex.relevance_score > 0.05
+        ]
+        print("Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]])
+    except Exception as e:
+        print("Reranker failed: ", e)
+
     return {"documents": state["documents"]}
 
 

@@ -10,6 +10,7 @@ import os
 import shutil
 import hashlib
 from langchain.schema import Document
+from gradio_log import Log
 
 load_dotenv()
 
@@ -222,7 +223,7 @@ def climate_chat(
 
                 yield answer, questions, answers
             elif key == "add_urls_to_database":
-                yield f"""Added new pages to database""", questions, answers
+                yield f"""**Added new pages to database**""", questions, answers
             elif key == "ask_user_for_feedback":
                 yield f"""Are you happy with the answer? (y/n)""", questions, answers
             else:
@@ -382,6 +383,10 @@ footer {
                 label="Documents retrieved",
                 headers=["Source", "Date added", "Page length"],
             )
+    with gr.Tab("Console"):
+        log_file = "rag.log"
+        Log(log_file=log_file, dark=True, tail = 1000, elem_classes=["h-full"], min_width=1000)
+
 
     ### Define the logic
     ## Tab 1: Chat
@@ -542,17 +547,17 @@ footer {
             .reindex(
                 ["date_added_ts", "question", "answer", "pdf_uri", "docx_uri"], axis=1
             )
-            .iloc[:20]
+            # .iloc[:20]
         )
         df.pdf_uri = (
             "<a target='_blank' href='"
             + df.pdf_uri.astype(str).fillna("")
-            + "'>PDF</a>"
+            + "'><img src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBmaWxsPSJ3aGl0ZSIgZD0iTTUgNGgxMHY0aDR2MTJINXpNMy45OTkgMkEuOTk1Ljk5NSAwIDAgMCAzIDIuOTkydjE4LjAxNmExIDEgMCAwIDAgLjk5My45OTJoMTYuMDE0QTEgMSAwIDAgMCAyMSAyMC45OTJWN2wtNS01em02LjUgNS41YzAgMS41NzctLjQ1NSAzLjQzNy0xLjIyNCA1LjE1M2MtLjc3MiAxLjcyMy0xLjgxNCAzLjE5Ny0yLjkgNC4wNjZsMS4xOCAxLjYxM2MyLjkyNy0xLjk1MiA2LjE2OC0zLjI5IDkuMzA0LTIuODQybC40NTctMS45MzlDMTQuNjQ0IDEyLjY2MSAxMi41IDkuOTkgMTIuNSA3LjV6bS42IDUuOTcyYy4yNjgtLjU5Ny41MDUtMS4yMTYuNzA1LTEuODQzYTkuNyA5LjcgMCAwIDAgMS43MDYgMS45NjZjLS45ODIuMTc2LTEuOTQ0LjQ2NS0yLjg3NS44MzNxLjI0OC0uNDcxLjQ2NS0uOTU2Ii8+PC9zdmc+' alt='PDF'></img></a>"
         )
         df.docx_uri = (
             "<a target='_blank' href='"
             + df.docx_uri.astype(str).fillna("")
-            + "'>DOCX</a>"
+            + "'><img src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBmaWxsPSJ3aGl0ZSIgZD0iTTE2IDh2OGgtMmwtMi0ybC0yIDJIOFY4aDJ2NWwyLTJsMiAyVjhoMVY0SDV2MTZoMTRWOHpNMyAyLjk5MkMzIDIuNDQ0IDMuNDQ3IDIgMy45OTkgMkgxNmw1IDV2MTMuOTkzQTEgMSAwIDAgMSAyMC4wMDcgMjJIMy45OTNBMSAxIDAgMCAxIDMgMjEuMDA4eiIvPjwvc3ZnPg==' alt='DOCX'></img></a>"
         )
 
         return gr.Dataset(samples=df.to_numpy().tolist())

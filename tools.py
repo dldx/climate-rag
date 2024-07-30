@@ -192,9 +192,9 @@ def add_doc_to_redis(r, doc):
 def add_urls_to_db_chrome(urls: List[str], db):
     from chromium import AsyncChromiumLoader
     from langchain_community.document_transformers import Html2TextTransformer
-    import nest_asyncio
+    # import nest_asyncio
 
-    nest_asyncio.apply()
+    # nest_asyncio.apply()
 
     # Filter urls that are already in the database
     filtered_urls = [url for url in urls if len(r.keys(url)) == 0]
