@@ -1,3 +1,4 @@
+from pathvalidate import sanitize_filename
 import pdf2docx
 import urllib.parse
 import re
@@ -72,7 +73,28 @@ def generate_qa_id(question: str, answer: str) -> str:
     """
     import hashlib
 
+    question_string = question[:200].replace(" ", "_")
     answer_hash = hashlib.shake_256(answer.encode()).hexdigest(5)
-    qa_id = f"{question[:200]}_{answer_hash}"
+    qa_id = sanitize_filename(f"{question_string}_{answer_hash}")
 
     return qa_id
+
+
+def modify_document_source_urls(old_url, new_url, db, r):
+    from redis import ResponseError
+    # Rename redis key
+    try:
+        r.rename(f"climate-rag::source:{old_url}", f"climate-rag::source:{new_url}")
+        r.hset(f"climate-rag::source:{new_url}", "source", new_url)
+        r.hset(f"climate-rag::source:{new_url}", "source_alt", old_url)
+    except ResponseError:
+        print(f"Redis key not found for source: {old_url}")
+    docs = db.get(where={"source": {"$in": [old_url]}}, include=["metadatas"])
+    if len(docs["ids"]) > 0:
+        for doc in docs["metadatas"]:
+            doc["source_alt"] = doc["source"]
+            doc["source"] = new_url
+
+        db._collection.update(ids=docs["ids"], metadatas=docs["metadatas"])
+    else:
+        print(f"No chroma documents found with source: {old_url}")

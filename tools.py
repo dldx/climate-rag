@@ -1,5 +1,6 @@
 import os
 import logging
+import tempfile
 from typing import List, Optional, Sequence
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.document_loaders import FireCrawlLoader
@@ -19,7 +20,9 @@ from langchain_core.documents import Document
 import datetime
 
 from cache import r
-from helpers import clean_urls
+from helpers import clean_urls, modify_document_source_urls, sanitize_url
+
+from pdf_download import download_urls_in_headed_chrome
 
 import tiktoken
 import re
@@ -82,7 +85,23 @@ def add_urls_to_db(urls: List[str], db: Chroma, use_firecrawl: bool = False) -> 
                     docs += add_urls_to_db_firecrawl([url], db)
                 else:
                     if "pdf" in url:
-                        docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
+                        jina_docs = add_urls_to_db_html(["https://r.jina.ai/" + url], db)
+                        # Check if the URL has been successfully processed
+                        if url in list(map(lambda x: x.metadata["source"], jina_docs)):
+                            docs += jina_docs
+                        else:
+                            # Otherwise, download file using headed chrome
+                            temp_dir = tempfile.TemporaryDirectory()
+                            downloaded_urls = download_urls_in_headed_chrome(urls=[url], download_dir=temp_dir.name)
+                            # Then upload the downloaded file to the database
+                            if len(downloaded_urls) > 0:
+                                uploaded_docs = upload_documents(files=[downloaded_urls[0]["local_path"]], db=db)
+                                # Change the source to the original URL
+                                modify_document_source_urls(uploaded_docs[0].metadata["source"], url, db, r)
+                            else:
+                                print("Failed to download file via Headed Chrome: ", url)
+                                uploaded_docs = []
+                            docs += uploaded_docs
                     else:
                         # use local chrome loader instead
                         chrome_docs = add_urls_to_db_chrome([url], db)
@@ -96,13 +115,16 @@ def add_urls_to_db(urls: List[str], db: Chroma, use_firecrawl: bool = False) -> 
             print("Already in database: ", url)
     return docs
 
-def add_urls_to_db_html(urls: List[str], db):
+def add_urls_to_db_html(urls: List[str], db) -> List[Document]:
     from langchain_community.document_loaders import AsyncHtmlLoader
+    from chromium import user_agents, Rotator
+
+    user_agent = Rotator(user_agents)
 
     docs = []
     for url in urls:
         default_header_template = {
-            "User-Agent": "",
+            "User-Agent": str(user_agent.get()),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*"
             ";q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
@@ -119,22 +141,36 @@ def add_urls_to_db_html(urls: List[str], db):
             )
             default_header_template["X-With-Generated-Alt"] = "true"
         # Only add url if it is not already in the database
-        if len(r.keys(url)) == 0:
+        ids_existing = r.keys(f"*{url}")
+        # Only add url if it is not already in the database
+        if len(ids_existing) == 0:
             print("Adding to database: ", url)
             loader = AsyncHtmlLoader([url], header_template=default_header_template)
             webdocs = loader.load()
-            for doc in webdocs:
-                doc.metadata["source"] = url
-                doc.metadata["date_added"] = datetime.datetime.now().isoformat()
-            page_errors = check_page_content_for_errors(webdocs[0].page_content)
+            assert len(webdocs) == 1, "Only one document should be returned"
+            doc = webdocs[0]
+            doc.metadata["source"] = url
+            doc.metadata["date_added"] = datetime.datetime.now().isoformat()
+            if "r.jina.ai" in url:
+                doc.metadata["loader"] = "jina"
+            else:
+                doc.metadata["loader"] = "html"
+            page_errors = check_page_content_for_errors(doc.page_content)
             if page_errors:
                 print(f"[HtmlLoader] Error loading {url}: {page_errors}")
             else:
-                for doc in webdocs:
-                    add_doc_to_redis(r, doc)
-                chunks = split_documents(webdocs)
+                # If using jina.ai, also fetch html content if file is not a pdf
+                if ("r.jina.ai" in url) and ("pdf" not in url):
+                    default_header_template["X-Return-Format"] = "html"
+                    loader = AsyncHtmlLoader([url], header_template=default_header_template)
+                    webdocs = loader.load()
+                    doc.metadata["raw_html"] = webdocs[0].page_content
+                add_doc_to_redis(r, doc)
+                chunks = split_documents([doc])
                 add_to_chroma(db, chunks)
-                docs += webdocs
+                docs += [doc]
+        else:
+            print("Already in database: ", url)
     return docs
 
 
@@ -155,6 +191,7 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
                 for doc in webdocs:
                     doc.metadata["source"] = url
                     doc.metadata["date_added"] = datetime.datetime.now().isoformat()
+                    doc.metadata["loader"] = "firecrawl"
 
                 page_errors = check_page_content_for_errors(webdocs[0].page_content)
                 if page_errors:
@@ -215,6 +252,7 @@ def add_urls_to_db_chrome(urls: List[str], db) -> List[Document]:
     docs_transformed = html2text.transform_documents(docs)
     for doc in docs_transformed:
         doc.metadata["date_added"] = datetime.datetime.now().isoformat()
+        doc.metadata["loader"] = "chrome"
     docs_to_return: List[Document] = []
     for doc in docs_transformed:
         page_errors = check_page_content_for_errors(doc.page_content)
@@ -401,7 +439,7 @@ def retrieve_multiple_queries(queries: List[str], retriever, k: int = -1):
     return unique_documents
 
 
-def upload_documents(files: str | List[str], db) -> List[str]:
+def upload_documents(files: str | List[str], db) -> List[Document]:
     """
     Add a document to the database from a local path.
 
@@ -421,7 +459,7 @@ def upload_documents(files: str | List[str], db) -> List[str]:
     if type(files) == str:
         files = [files]
 
-    filenames = []
+    docs: List[Document] = []
 
     for file in files:
         filename = file.split("/")[-1]
@@ -460,9 +498,8 @@ def upload_documents(files: str | List[str], db) -> List[str]:
                 + filename
             )
             print("Uploaded to tmpfiles.org at ", dl_url)
-        add_urls_to_db([dl_url], db)
-        filenames.append(filename)
-    return filenames
+        docs += add_urls_to_db_html([sanitize_url(dl_url)], db=db)
+    return docs
 
 
 def upload_file(file_name: str, bucket: str, path: str, object_name: Optional[str] = None):
