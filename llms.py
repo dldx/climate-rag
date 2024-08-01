@@ -7,18 +7,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def get_chatbot(llm: Literal["gpt-4o", "gpt-4", "gpt-3.5-turbo-16k", "mistral", "claude"] = "claude", **kwargs):
+def get_chatbot(llm: Literal["gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude"] = "claude", **kwargs):
     """Get a chatbot instance.
 
     Args:
-        llm: The language model to use. Options are "gpt-4o", "gpt-4", "gpt-3.5-turbo-16k", "mistral", or "claude".
+        llm: The language model to use. Options are "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", or "claude".
         **kwargs: optional keyword arguments to pass to the chat model
 
     Returns:
         A chatbot instance.
     """
 
-    if llm in ["gpt-4o", "gpt-4", "gpt-3.5-turbo-16k"]:
+    if llm in ["gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k"]:
         return ChatOpenAI(model=llm, **kwargs)
     elif llm == "mistral":
         return ChatOllama(model="mistral", temperature=0, **kwargs)

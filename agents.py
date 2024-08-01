@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import msgspec
+import pandas as pd
 from helpers import generate_qa_id
 from schemas import SearchQuery, SearchQueries
 from typing import Any, List, Literal
@@ -290,18 +291,51 @@ def rerank_docs(state: GraphState) -> GraphState:
     import cohere
 
     co = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
+    # Get unique sources
+    unique_sources = list(set([doc.metadata.get("source", None) for doc in documents]))
+    # For each source, get titles and company names (if available)
+    source_metadatas = []
+    from tools import get_source_document_extra_metadata
+
+    for source in unique_sources:
+        try:
+            metadata = get_source_document_extra_metadata(
+                r, source, metadata_fields=["title", "company_name"]
+            )
+        except:
+            # If metadata not found, continue
+            metadata = {}
+        metadata["source"] = source
+        source_metadatas.append(metadata)
+
+    source_metadatas_df = pd.DataFrame(source_metadatas).set_index("source")
+    for doc in documents:
+        doc.metadata = {
+            **doc.metadata,
+            **source_metadatas_df.loc[doc.metadata["source"]],
+        }
+
     try:
         reranked_results = co.rerank(
             model="rerank-multilingual-v3.0",
             query=question,
-            documents=[doc.page_content for doc in documents],
+            documents=[
+                f"""Title: {doc.metadata.get("title", "")}
+Company name: '{doc.metadata.get("company_name", "")}'
+
+Contents: {doc.page_content}
+"""
+                for doc in documents
+            ],
         )
         state["documents"] = [
             documents[docIndex.index]
             for docIndex in reranked_results.results
             if docIndex.relevance_score > 0.05
         ]
-        print("Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]])
+        print(
+            "Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]]
+        )
     except Exception as e:
         print("Reranker failed: ", e)
 

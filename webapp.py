@@ -615,7 +615,11 @@ height: max-content;
         # Retrieve source markdown
         page_content = query_source_documents(db, f"*{url}*", print_output=False)[
             "page_content"
-        ].iloc[0]
+        ]
+        if len(page_content) > 0:
+            page_content = page_content.iloc[0]
+        else:
+            page_content = f"Error loading document: {url}. See console for details."
         return page_content
 
     add_button.click(

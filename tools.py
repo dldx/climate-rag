@@ -1,7 +1,7 @@
 import os
 import logging
 import tempfile
-from typing import List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.document_loaders import FireCrawlLoader
 import shutil
@@ -12,6 +12,7 @@ from langchain_text_splitters import (
     MarkdownHeaderTextSplitter,
 )
 from langchain_experimental.text_splitter import SemanticChunker
+import msgspec
 from get_embedding_function import get_embedding_function
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
@@ -66,7 +67,10 @@ def check_page_content_for_errors(page_content: str):
     else:
         return None
 
-def add_urls_to_db(urls: List[str], db: Chroma, use_firecrawl: bool = False) -> List[Document]:
+
+def add_urls_to_db(
+    urls: List[str], db: Chroma, use_firecrawl: bool = False
+) -> List[Document]:
     """Add a list of URLs to the database.
 
     Decide which loader to use based on the URL.
@@ -85,35 +89,50 @@ def add_urls_to_db(urls: List[str], db: Chroma, use_firecrawl: bool = False) -> 
                     docs += add_urls_to_db_firecrawl([url], db)
                 else:
                     if "pdf" in url:
-                        jina_docs = add_urls_to_db_html(["https://r.jina.ai/" + url], db)
+                        jina_docs = add_urls_to_db_html(
+                            ["https://r.jina.ai/" + url], db
+                        )
                         # Check if the URL has been successfully processed
                         if url in list(map(lambda x: x.metadata["source"], jina_docs)):
                             docs += jina_docs
                         else:
                             # Otherwise, download file using headed chrome
                             temp_dir = tempfile.TemporaryDirectory()
-                            downloaded_urls = download_urls_in_headed_chrome(urls=[url], download_dir=temp_dir.name)
+                            downloaded_urls = download_urls_in_headed_chrome(
+                                urls=[url], download_dir=temp_dir.name
+                            )
                             # Then upload the downloaded file to the database
                             if len(downloaded_urls) > 0:
-                                uploaded_docs = upload_documents(files=[downloaded_urls[0]["local_path"]], db=db)
+                                uploaded_docs = upload_documents(
+                                    files=[downloaded_urls[0]["local_path"]], db=db
+                                )
                                 # Change the source to the original URL
-                                modify_document_source_urls(uploaded_docs[0].metadata["source"], url, db, r)
+                                modify_document_source_urls(
+                                    uploaded_docs[0].metadata["source"], url, db, r
+                                )
                             else:
-                                print("Failed to download file via Headed Chrome: ", url)
+                                print(
+                                    "Failed to download file via Headed Chrome: ", url
+                                )
                                 uploaded_docs = []
                             docs += uploaded_docs
                     else:
                         # use local chrome loader instead
                         chrome_docs = add_urls_to_db_chrome([url], db)
                         # Check if the URL has been successfully processed
-                        if url in list(map(lambda x: x.metadata["source"], chrome_docs)):
+                        if url in list(
+                            map(lambda x: x.metadata["source"], chrome_docs)
+                        ):
                             docs += chrome_docs
                         else:
                             # Otherwise, use jina.ai loader
-                            docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
+                            docs += add_urls_to_db_html(
+                                ["https://r.jina.ai/" + url], db
+                            )
         else:
             print("Already in database: ", url)
     return docs
+
 
 def add_urls_to_db_html(urls: List[str], db) -> List[Document]:
     from langchain_community.document_loaders import AsyncHtmlLoader
@@ -162,7 +181,9 @@ def add_urls_to_db_html(urls: List[str], db) -> List[Document]:
                 # If using jina.ai, also fetch html content if file is not a pdf
                 if ("r.jina.ai" in url) and ("pdf" not in url):
                     default_header_template["X-Return-Format"] = "html"
-                    loader = AsyncHtmlLoader([url], header_template=default_header_template)
+                    loader = AsyncHtmlLoader(
+                        [url], header_template=default_header_template
+                    )
                     webdocs = loader.load()
                     doc.metadata["raw_html"] = webdocs[0].page_content
                 add_doc_to_redis(r, doc)
@@ -232,17 +253,20 @@ def add_doc_to_redis(r, doc):
     r.hset("climate-rag::source:" + doc_dict["source"], mapping=doc_dict)
 
 
-def add_urls_to_db_chrome(urls: List[str], db) -> List[Document]:
+def add_urls_to_db_chrome(urls: List[str], db, headless=True) -> List[Document]:
     from chromium import AsyncChromiumLoader
     from langchain_community.document_transformers import Html2TextTransformer
+
     # import nest_asyncio
 
     # nest_asyncio.apply()
 
     # Filter urls that are already in the database
-    filtered_urls = [url for url in urls if len(r.keys("climate-rag::source:" + url)) == 0]
+    filtered_urls = [
+        url for url in urls if len(r.keys("climate-rag::source:" + url)) == 0
+    ]
     print("Adding to database: ", filtered_urls)
-    loader = AsyncChromiumLoader(urls=filtered_urls)
+    loader = AsyncChromiumLoader(urls=filtered_urls, headless=headless)
     docs = loader.load()
     # Cache raw html in redis
     for doc in docs:
@@ -270,7 +294,17 @@ def add_urls_to_db_chrome(urls: List[str], db) -> List[Document]:
 
 def format_docs(docs):
     return "\n\n".join(
-        "Source: {source}\nContent: {content}\n\n---".format(
+        """
+Title: {title}
+Company: {company_name}
+Source: {source}
+Content:
+{content}
+
+---
+""".format(
+            title=doc.metadata.get("title", ""),
+            company_name=doc.metadata.get("company_name", ""),
             content=doc.page_content,
             source=(
                 clean_urls([doc.metadata["source"]], os.environ.get("STATIC_PATH", ""))[
@@ -413,7 +447,7 @@ def calculate_chunk_ids(chunks):
     return chunks
 
 
-from schemas import SearchQuery
+from schemas import PageMetadata, SearchQuery
 
 
 def _unique_documents(documents: Sequence[Document]) -> List[Document]:
@@ -478,6 +512,7 @@ def upload_documents(files: str | List[str], db) -> List[Document]:
             object_name = filename
             # Get checksum of file
             import hashlib
+
             with open(file, "rb") as f:
                 # Produce a short hash of the file
                 digest = hashlib.file_digest(f, "shake_256").hexdigest(5)
@@ -488,7 +523,8 @@ def upload_documents(files: str | List[str], db) -> List[Document]:
         else:
             # Otherwise upload the file to tmpfiles.org to load into firecrawl or jina
             response = requests.post(
-                url="https://tmpfiles.org/api/v1/upload", files={"file": open(file, "rb")}
+                url="https://tmpfiles.org/api/v1/upload",
+                files={"file": open(file, "rb")},
             )
             # Store filename with URL
             dl_url = (
@@ -502,7 +538,9 @@ def upload_documents(files: str | List[str], db) -> List[Document]:
     return docs
 
 
-def upload_file(file_name: str, bucket: str, path: str, object_name: Optional[str] = None):
+def upload_file(
+    file_name: str, bucket: str, path: str, object_name: Optional[str] = None
+):
     """Upload a file to an S3 bucket
 
     :param file_name: File to upload
@@ -530,3 +568,86 @@ def upload_file(file_name: str, bucket: str, path: str, object_name: Optional[st
         logging.error(e)
         return False
     return True
+
+
+def extract_metadata_from_source_document(source_text) -> PageMetadata:
+    from llms import get_chatbot
+    from prompts import metadata_extractor_prompt
+    from langchain_core.output_parsers import PydanticOutputParser
+    import tiktoken
+
+    from langchain.prompts import PromptTemplate, ChatPromptTemplate
+
+    parser = PydanticOutputParser(pydantic_object=PageMetadata)
+
+    llm = get_chatbot("gpt-4o-mini")
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", metadata_extractor_prompt),
+            ("user", "{raw_text}"),
+        ]
+    ).partial(response_format=parser.get_format_instructions())
+    extract_chain = prompt | llm | parser
+
+    enc = tiktoken.encoding_for_model("gpt-4o-mini")
+    total_token_length = len(enc.encode(source_text))
+
+    # The maximum token length for GPT-4o-mini is 128000 tokens
+    # Reduce the length of the text to fit within the token limit
+    source_text = source_text[: int(120_000 / total_token_length * len(source_text))]
+
+    metadata = extract_chain.invoke({"raw_text": source_text})
+
+    return metadata
+
+
+def get_source_document_extra_metadata(
+    r,
+    source_uri,
+    metadata_fields: List[Literal["title", "company_name", "publishing_date"]] = [
+        "title"
+    ],
+) -> Dict[str, Any]:
+    """Get generated metadata for a source document from redis. If the metadata is not available, generate it first.
+
+    Args:
+        source_uri: The source URI of the document.
+        metadata_fields: A list of metadata fields to return.
+
+    Returns:
+        Dict[str, any]: Returns a dictionary of metadata fields.
+    """
+    # Check if metadata is available in redis
+    dict_to_return = {}
+    for field in metadata_fields:
+        field_value = r.hget(f"climate-rag::source:{source_uri}", field)
+        if field_value:
+            dict_to_return[field] = field_value
+        else:
+            # Generate metadata from source document
+            # Try to get the raw_html or page_content from redis
+            source_text = r.hget(f"climate-rag::source:{source_uri}", "raw_html")
+            if not source_text:
+                source_text = r.hget(
+                    f"climate-rag::source:{source_uri}", "page_content"
+                )
+            # Extract metadata from source document using LLM
+            page_metadata = extract_metadata_from_source_document(source_text)
+            # Save metadata to redis
+            page_metadata_map = page_metadata.dict()
+            # Convert publishing date to timestamp
+            if page_metadata_map["publishing_date"]:
+                page_metadata_map["publishing_date"] = int(
+                    datetime.datetime(*page_metadata_map["publishing_date"]).timestamp()
+                )
+            # Convert key_entities to json
+            page_metadata_map["key_entities"] = msgspec.json.encode(
+                page_metadata_map["key_entities"]
+            )
+            # Save metadata to redis
+            r.hset(f"climate-rag::source:{source_uri}", mapping=page_metadata_map)
+
+            dict_to_return[field] = page_metadata_map[field]
+
+    return dict_to_return

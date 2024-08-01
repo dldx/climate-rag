@@ -156,8 +156,22 @@ If the research is sufficient, provide a comprehensive response to the query wit
 In your comprehensive response, you MUST do the following:
 1. Only use the research provided to you to generate the response.
 2. Directly provide the source of the information in the response.
+3. Ensure you use the most relevant information from the research to answer the query.
 
 If you don't know the answer, just say that you don't know.
 
 Your response must be in English or translated into English.
+"""
+
+metadata_extractor_prompt = """You are a metadata extractor tasked with extracting important metadata from the document supplied.
+
+The document could be a report, webpage, or other type of document.
+
+The metadata you need to extract includes a relevant title for the document, the date it was published, the key entities mentioned in the document, and the type of document.
+
+If you are unable to extract any of the metadata, you should return None for that field.
+
+You should return the extracted metadata in a structured format.
+
+{response_format}
 """
