@@ -62,6 +62,7 @@ class GraphState(TypedDict):
     shall_improve_question: bool
     do_rerank: bool
     do_crawl: bool
+    do_add_additional_metadata: bool
     search_tool: Literal["serper", "tavily", "baidu"]
     language: Literal["en", "zh", "vi"]
     initial_generation: bool
@@ -271,6 +272,55 @@ def retrieve(state: GraphState) -> GraphState:
     print("Retrieved Documents: ", [doc.metadata["id"] for doc in documents])
     return {"documents": documents, "search_prompts": state["search_prompts"]}
 
+from tools import get_source_document_extra_metadata
+from functools import partial
+def get_metadata_for_source(r, source):
+    try:
+        metadata = get_source_document_extra_metadata(
+            r, source, metadata_fields=["title", "company_name"]
+        )
+    except:
+        # If metadata not found, continue
+        metadata = {}
+    metadata["source"] = source
+    return metadata
+
+def add_additional_metadata(state: GraphState) -> GraphState:
+    """
+    Add additional metadata to documents
+
+    Args:
+        state (dict): The current graph state
+
+    Returns:
+        state (dict): Updates documents key with additional metadata
+    """
+
+    if state["do_add_additional_metadata"] == False:
+        return {"documents": state["documents"]}
+
+    print("---ADD ADDITIONAL METADATA TO DOCUMENTS---")
+    documents = state["documents"]
+
+    # Add additional metadata to documents
+
+    # Get unique sources
+    unique_sources = list(set([doc.metadata.get("source", None) for doc in documents]))
+    # For each source, get titles and company names (if available)
+    # Use partial to pass the 'r' argument to the function
+    func = partial(get_metadata_for_source, r)
+    source_metadatas = list(map(func, unique_sources))
+
+    # Now add metadata to documents
+    source_metadatas_df = pd.DataFrame(source_metadatas).set_index("source")
+    for doc in documents:
+        doc.metadata = {
+            **doc.metadata,
+            **source_metadatas_df.loc[doc.metadata["source"]],
+        }
+
+    state["documents"] = documents
+    return {"documents": state["documents"]}
 
 def rerank_docs(state: GraphState) -> GraphState:
     """
@@ -291,29 +341,6 @@ def rerank_docs(state: GraphState) -> GraphState:
     import cohere
 
     co = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
-    # Get unique sources
-    unique_sources = list(set([doc.metadata.get("source", None) for doc in documents]))
-    # For each source, get titles and company names (if available)
-    source_metadatas = []
-    from tools import get_source_document_extra_metadata
-
-    for source in unique_sources:
-        try:
-            metadata = get_source_document_extra_metadata(
-                r, source, metadata_fields=["title", "company_name"]
-            )
-        except:
-            # If metadata not found, continue
-            metadata = {}
-        metadata["source"] = source
-        source_metadatas.append(metadata)
-
-    source_metadatas_df = pd.DataFrame(source_metadatas).set_index("source")
-    for doc in documents:
-        doc.metadata = {
-            **doc.metadata,
-            **source_metadatas_df.loc[doc.metadata["source"]],
-        }
 
     try:
         reranked_results = co.rerank(
@@ -603,6 +630,22 @@ def decide_to_rerank(state: GraphState) -> GraphState:
     else:
         return "no_rerank"
 
+def decide_to_add_additional_metadata(state: GraphState) -> GraphState:
+    """
+    Determines whether to add additional metadata to documents
+
+    Args:
+        state (dict): The current graph state
+
+    Returns:
+        str: Binary decision for next node to call
+    """
+
+    if state.get("do_add_additional_metadata", False) and (len(state["documents"]) > 0):
+        return "add_additional_metadata"
+    else:
+        return "no_add_additional_metadata"
+
 
 def ask_user_for_feedback(state):
     """
@@ -737,6 +780,7 @@ def generate(state: GraphState) -> GraphState:
     qa_map = {
         "answer": generation,
         "question": state["initial_question"],
+        "rag_filter": state["rag_filter"],
         "doc_ids": msgspec.json.encode([doc.metadata["id"] for doc in documents]),
         "sources": msgspec.json.encode(
             list(

@@ -138,6 +138,7 @@ def climate_chat(
     rag_filter,
     improve_question,
     do_rerank,
+    do_add_additional_metadata,
     language,
     initial_generation,
 ):
@@ -173,6 +174,7 @@ def climate_chat(
             improve_question=improve_question,
             language=language,
             do_rerank=do_rerank,
+            do_add_additional_metadata=do_add_additional_metadata,
             history=history,
             initial_generation=happy_with_answer,
         ):
@@ -209,6 +211,8 @@ def climate_chat(
                 # yield f"""Search query: {value["search_query"]}
 
                 # Search query (en): {value["search_query_en"]}""", questions
+            elif key == "add_additional_metadata":
+                yield f"""**Fetching document titles, entities, etc...**""", questions, answers
             elif key == "rerank_documents":
                 # yield f"""Reranked documents: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
                 yield f"""**Reranking documents...**""", questions, answers
@@ -280,6 +284,8 @@ height: max-content;
                     value=True, label="Generate answer before web search?"
                 )
                 do_rerank_checkbox = gr.Checkbox(value=True, label="Rerank documents?")
+                do_add_additional_metadata_checkbox = gr.Checkbox(
+                    value=False, label="Augment with additional metadata?")
                 language_dropdown = gr.Dropdown(
                     choices=[
                         ("English", "en"),
@@ -421,6 +427,7 @@ height: max-content;
         rag_filter,
         improve_question,
         do_rerank,
+        do_add_additional_metadata,
         language,
         initial_generation,
     ):
@@ -441,6 +448,7 @@ height: max-content;
             rag_filter=rag_filter,
             improve_question=improve_question,
             do_rerank=do_rerank,
+            do_add_additional_metadata=do_add_additional_metadata,
             language=language,
             initial_generation=initial_generation,
         )
@@ -464,6 +472,7 @@ height: max-content;
             rag_filter_textbox,
             improve_question_checkbox,
             do_rerank_checkbox,
+            do_add_additional_metadata_checkbox,
             language_dropdown,
             do_initial_generation_checkbox,
         ],

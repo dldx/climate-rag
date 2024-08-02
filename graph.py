@@ -4,6 +4,7 @@ from agents import (
     formulate_query,
     generate_search_query,
     retrieve,
+    add_additional_metadata,
     grade_documents,
     rerank_docs,
     generate,
@@ -13,6 +14,7 @@ from agents import (
     decide_to_rerank,
     decide_to_search,
     decide_to_generate,
+    decide_to_add_additional_metadata,
     GraphState
 )
 import os
@@ -29,6 +31,7 @@ def create_graph():
     workflow.add_node("formulate_query", formulate_query)  # formulate query
     # workflow.add_node("generate_search_query", generate_search_query)  # generate search query
     workflow.add_node("retrieve_from_database", retrieve)  # retrieve
+    workflow.add_node("add_additional_metadata", add_additional_metadata)  # add additional metadata
     workflow.add_node("rerank_documents", rerank_docs)  # rerank documents
     # workflow.add_node("grade_documents", grade_documents)  # grade documents
     workflow.add_node("generate", generate)  # generate
@@ -45,8 +48,9 @@ def create_graph():
                                   {
                                     "generate":  "retrieve_from_database",
                                     "no_generate": "web_search_node"})
+    workflow.add_edge("retrieve_from_database", "add_additional_metadata")
     workflow.add_conditional_edges(
-        "retrieve_from_database",
+        "add_additional_metadata",
         decide_to_rerank,
         {
             "rerank": "rerank_documents",
