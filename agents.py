@@ -780,7 +780,7 @@ def generate(state: GraphState) -> GraphState:
     qa_map = {
         "answer": generation,
         "question": state["initial_question"],
-        "rag_filter": state["rag_filter"],
+        "rag_filter": state["rag_filter"] if state["rag_filter"] else "*",
         "doc_ids": msgspec.json.encode([doc.metadata["id"] for doc in documents]),
         "sources": msgspec.json.encode(
             list(

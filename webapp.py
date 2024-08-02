@@ -388,10 +388,12 @@ height: max-content;
                 components=[
                     gr.Textbox(visible=False),
                     gr.Textbox(visible=False),
+                    gr.Textbox(visible=False),
+                    gr.Textbox(visible=False),
                     gr.Number(visible=False),
                 ],
                 label="Documents retrieved",
-                headers=["Source", "Date added", "Page length"],
+                headers=["Title", "Company name", "Source", "Date added", "Page length"],
             )
     with gr.Tab("Console"):
         log_file = "rag.log"
@@ -594,12 +596,12 @@ height: max-content;
 
         if len(search_query) < 3:
             search_results = query_source_documents(db, "", print_output=False)[
-                ["source", "date_added", "page_length", "page_content"]
+                ["title", "company_name", "source", "date_added", "page_length", "page_content"]
             ]
         else:
             search_results = query_source_documents(
                 db, f"*{search_query}*", print_output=False
-            )[["source", "date_added", "page_length", "page_content"]]
+            )[["title", "company_name", "source", "date_added", "page_length", "page_content"]]
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
     search_input.change(
