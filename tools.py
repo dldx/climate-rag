@@ -1,3 +1,5 @@
+import hashlib
+from ulid import ULID
 import os
 import logging
 import tempfile
@@ -98,21 +100,39 @@ def add_urls_to_db(
                         else:
                             # Otherwise, download file using headed chrome
                             temp_dir = tempfile.TemporaryDirectory()
-                            downloaded_urls = download_urls_in_headed_chrome(
-                                urls=[url], download_dir=temp_dir.name
-                            )
-                            # Then upload the downloaded file to the database
-                            if len(downloaded_urls) > 0:
-                                uploaded_docs = upload_documents(
-                                    files=[downloaded_urls[0]["local_path"]], db=db
+                            try:
+                                downloaded_urls = download_urls_in_headed_chrome(
+                                    urls=[url], download_dir=temp_dir.name
                                 )
-                                # Change the source to the original URL
-                                modify_document_source_urls(
-                                    uploaded_docs[0].metadata["source"], url, db, r
+                                # Then upload the downloaded file to the database
+                                if len(downloaded_urls) > 0:
+                                    uploaded_docs = upload_documents(
+                                        files=[downloaded_urls[0]["local_path"]], db=db
+                                    )
+                                    # Change the source to the original URL
+                                    modify_document_source_urls(
+                                        uploaded_docs[0].metadata["source"], url, db, r
+                                    )
+                                else:
+                                    print(
+                                        "Failed to download file via Headed Chrome: ", url
+                                    )
+                                    uploaded_docs = []
+                            except Exception as e:
+                                # create ulid for error
+                                error_hash = str(ULID())
+                                # Save error to redis
+                                r.hset(
+                                    f"climate-rag::error:{error_hash}",
+                                    mapping={
+                                        "error": str(e),
+                                        "url": url,
+                                        "date_added": datetime.datetime.now().isoformat(),
+                                        "source": "headed_chrome",
+                                    },
                                 )
-                            else:
                                 print(
-                                    "Failed to download file via Headed Chrome: ", url
+                                    f"Error downloading file via Headed Chrome: {url}. Error saved to redis with key {error_hash}"
                                 )
                                 uploaded_docs = []
                             docs += uploaded_docs
