@@ -78,6 +78,13 @@ def main():
     )
 
     parser.add_argument(
+        "--max-search-queries",
+        type=int,
+        help="The maximum number of search queries to run",
+        default=1,
+    )
+
+    parser.add_argument(
         "--llm",
         type=str,
         help="The language model to use. One of 'gpt-4o', 'mistral', 'claude'",
@@ -127,6 +134,7 @@ def main():
             search_tool=args.search_tool,
             do_rerank=args.rerank,
             do_crawl=args.crawl,
+            max_search_queries=args.max_search_queries,
             language=args.language,
             initial_generation=args.initial_generation,
         ):
@@ -238,6 +246,7 @@ def run_query(
     search_tool: Literal["serper", "tavily", "baidu"] = "serper",
     do_rerank: Optional[bool] = True,
     do_crawl: Optional[bool] = True,
+    max_search_queries: Optional[int] = 1,
     do_add_additional_metadata: Optional[bool] = True,
     language: Literal["en", "zh", "vi"] = "en",
     initial_generation: Optional[bool] = True,
@@ -258,6 +267,7 @@ def run_query(
         "shall_improve_question": improve_question,
         "search_tool": search_tool,
         "do_rerank": do_rerank,
+        "max_search_queries": max_search_queries,
         "do_add_additional_metadata": do_add_additional_metadata,
         "language": language,
         "initial_generation": initial_generation,

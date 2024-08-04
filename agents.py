@@ -52,6 +52,7 @@ class GraphState(TypedDict):
     search_prompts: List[SearchQuery]
     search_query: str
     search_query_en: str
+    max_search_queries: int
     generation: str
     web_search: str
     web_search_completed: bool
@@ -153,6 +154,8 @@ def formulate_query(state: GraphState) -> GraphState:
     ### Convert question into search query
     from prompts import planning_agent_prompt
 
+    n_queries = max(state["max_search_queries"], 5)
+
     llm = get_chatbot(
         state["llm"], model_kwargs={"response_format": {"type": "json_object"}}
     )
@@ -170,6 +173,7 @@ def formulate_query(state: GraphState) -> GraphState:
         ]
     ).partial(
         response_format=parser.get_format_instructions(),
+        n_queries=n_queries,
         plan=None,
         feedback=None,
         datetime=get_current_utc_datetime(),
@@ -192,6 +196,7 @@ def generate_search_query(state: GraphState) -> GraphState:
     )
 
     parser = PydanticOutputParser(pydantic_object=SearchQuery)
+
 
     extract_search_prompt = ChatPromptTemplate.from_messages(
         [
@@ -272,8 +277,11 @@ def retrieve(state: GraphState) -> GraphState:
     print("Retrieved Documents: ", [doc.metadata["id"] for doc in documents])
     return {"documents": documents, "search_prompts": state["search_prompts"]}
 
+
 from tools import get_source_document_extra_metadata
 from functools import partial
+
+
 def get_metadata_for_source(r, source):
     try:
         metadata = get_source_document_extra_metadata(
@@ -284,6 +292,7 @@ def get_metadata_for_source(r, source):
         metadata = {}
     metadata["source"] = source
     return metadata
+
 
 def add_additional_metadata(state: GraphState) -> GraphState:
     """
@@ -321,6 +330,7 @@ def add_additional_metadata(state: GraphState) -> GraphState:
 
     state["documents"] = documents
     return {"documents": state["documents"]}
+
 
 def rerank_docs(state: GraphState) -> GraphState:
     """
@@ -436,53 +446,69 @@ def web_search(state: GraphState) -> GraphState:
     from serpapi import BaiduSearch
 
     search_tool = state["search_tool"]  # "serper" or "tavily" or "baidu"
+    num_queries = state["max_search_queries"]  # How many search queries to use
 
     print("---WEB SEARCH---")
-    # Use only first search query to run web search
-    if state["language"] == "en":
-        search_query = state["search_prompts"][0].query_en
-    else:
-        search_query = state["search_prompts"][0].query
-
-    print("Search query: ", search_query)
-    if state["language"] != "en":
-        print("Search query (en): ", state["search_prompts"][0].query_en)
-
+    print(f"Running {num_queries} search queries")
     documents = state["documents"] or []
+    search_results = []
+    for search_prompt in state["search_prompts"][:num_queries]:
+        if state["language"] == "en":
+            search_query = search_prompt.query_en
+        else:
+            search_query = search_prompt.query
 
-    # Web search
-    if search_tool == "serper":
-        search = GoogleSerperAPIWrapper(gl="gb")
-        docs = search.results(search_query)["organic"]
-        web_results = [
-            Document(
-                page_content=doc["snippet"],
-                metadata={"source": doc["link"], "web_search": True},
+        print("Search query: ", search_query)
+        if state["language"] != "en":
+            print("Search query (en): ", state["search_prompts"][0].query_en)
+
+        # Web search
+        if search_tool == "serper":
+            search = GoogleSerperAPIWrapper(gl="gb")
+            docs = search.results(search_query)["organic"]
+            web_results = [
+                Document(
+                    page_content=doc["snippet"],
+                    metadata={"source": doc["link"], "web_search": True},
+                )
+                for doc in docs
+            ]
+        elif search_tool == "tavily":
+            docs = web_search_tool.invoke({"query": search_query})
+            web_results = [
+                Document(
+                    page_content=doc["content"],
+                    metadata={"source": doc["url"], "web_search": True},
+                )
+                for doc in docs
+            ]
+        elif search_tool == "baidu":
+            search = BaiduSearch(
+                {"q": search_query, "api_key": os.getenv("SERPAPI_API_KEY")}
             )
-            for doc in docs
+            docs = search.get_dict()["organic_results"]
+            web_results = [
+                Document(
+                    page_content=doc.get("snippet", ""),
+                    metadata={"source": doc["link"], "web_search": True},
+                )
+                for doc in docs
+            ]
+        search_results += [
+            {"source": doc.metadata["source"], "rank": i, "doc": doc}
+            for i, doc in enumerate(web_results)
         ]
-    elif search_tool == "tavily":
-        docs = web_search_tool.invoke({"query": search_query})
-        web_results = [
-            Document(
-                page_content=doc["content"],
-                metadata={"source": doc["url"], "web_search": True},
-            )
-            for doc in docs
-        ]
-    elif search_tool == "baidu":
-        search = BaiduSearch(
-            {"q": search_query, "api_key": os.getenv("SERPAPI_API_KEY")}
-        )
-        docs = search.get_dict()["organic_results"]
-        web_results = [
-            Document(
-                page_content=doc.get("snippet", ""),
-                metadata={"source": doc["link"], "web_search": True},
-            )
-            for doc in docs
-        ]
-    documents += web_results[:10]
+    # Rank results by frequency in search results and rank in individual search results
+    # Use average of combined rank and frequency rank to sort
+    ranked_search_results = pd.DataFrame(search_results).pipe(lambda df: df.join(df.value_counts("source"), on="source")).assign(final_rank = lambda x: x["rank"] - x["count"]).groupby("source").agg({"final_rank": "mean", "doc":"first"}).sort_values("final_rank").doc.tolist()
+    # Add web search results to documents
+    documents += ranked_search_results[:30]
+
+    state["documents"] = documents
+
+    print(f"""Identified {len(documents)} web search results: {
+        [doc.metadata["source"] for doc in documents if doc.metadata.get("web_search")]
+    }""")
 
     return {
         "documents": documents,
@@ -509,7 +535,7 @@ def crawl_or_not(doc: Document, question: str):
         }
     """
 
-    llm = get_chatbot()
+    llm = get_chatbot(llm="gpt-4o-mini")
 
     class CrawlDecision(BaseModel):
         crawl: bool = Field(description="Whether the web page should be crawled")
@@ -629,6 +655,7 @@ def decide_to_rerank(state: GraphState) -> GraphState:
         return "rerank"
     else:
         return "no_rerank"
+
 
 def decide_to_add_additional_metadata(state: GraphState) -> GraphState:
     """

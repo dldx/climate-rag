@@ -50,8 +50,6 @@ def check_page_content_for_errors(page_content: str):
         return "AssertionFailureError"
     elif "TimeoutError" in page_content:
         return "TimeoutError"
-    elif "Access Denied" in page_content:
-        return "Access Denied"
     elif (page_content == "") or (len(page_content) < 600):
         return "Empty or minimal page content"
     elif "Error: Page.goto: Timeout 30000ms exceeded." in page_content:
@@ -664,6 +662,9 @@ def get_source_document_extra_metadata(
             # Convert key_entities to json
             page_metadata_map["key_entities"] = msgspec.json.encode(
                 page_metadata_map["key_entities"]
+            )
+            page_metadata_map["keywords"] = msgspec.json.encode(
+                page_metadata_map["keywords"]
             )
             # Save metadata to redis
             r.hset(f"climate-rag::source:{source_uri}", mapping=page_metadata_map)

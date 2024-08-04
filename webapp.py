@@ -138,6 +138,7 @@ def climate_chat(
     rag_filter,
     improve_question,
     do_rerank,
+    max_search_queries,
     do_add_additional_metadata,
     language,
     initial_generation,
@@ -174,6 +175,7 @@ def climate_chat(
             improve_question=improve_question,
             language=language,
             do_rerank=do_rerank,
+            max_search_queries=max_search_queries,
             do_add_additional_metadata=do_add_additional_metadata,
             history=history,
             initial_generation=happy_with_answer,
@@ -286,6 +288,9 @@ height: max-content;
                 do_rerank_checkbox = gr.Checkbox(value=True, label="Rerank documents?")
                 do_add_additional_metadata_checkbox = gr.Checkbox(
                     value=False, label="Augment with additional metadata?")
+                max_search_queries_textbox = gr.Number(
+                    label="Maximum number of search queries to run", value=1, minimum=1, maximum=15
+                )
                 language_dropdown = gr.Dropdown(
                     choices=[
                         ("English", "en"),
@@ -429,6 +434,7 @@ height: max-content;
         rag_filter,
         improve_question,
         do_rerank,
+        max_search_queries,
         do_add_additional_metadata,
         language,
         initial_generation,
@@ -450,6 +456,7 @@ height: max-content;
             rag_filter=rag_filter,
             improve_question=improve_question,
             do_rerank=do_rerank,
+            max_search_queries=max_search_queries,
             do_add_additional_metadata=do_add_additional_metadata,
             language=language,
             initial_generation=initial_generation,
@@ -474,6 +481,7 @@ height: max-content;
             rag_filter_textbox,
             improve_question_checkbox,
             do_rerank_checkbox,
+            max_search_queries_textbox,
             do_add_additional_metadata_checkbox,
             language_dropdown,
             do_initial_generation_checkbox,
@@ -649,7 +657,7 @@ height: max-content;
     from tools import upload_documents
 
     new_file.upload(
-        fn=lambda x: upload_documents(x, db)[-1],  # Return the last document added only
+        fn=lambda x: upload_documents(x, db)[-1].metadata["source"],  # Return the last document added only
         inputs=[new_file],
         outputs=[search_input],
         queue=False,
