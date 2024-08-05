@@ -417,21 +417,13 @@ def add_to_chroma(db: Chroma, chunks: list[Document]):
     # Calculate Page IDs.
     chunks_with_ids = calculate_chunk_ids(chunks)
 
-    # Add or Update the documents.
-    existing_items = db.get(include=[])  # IDs are always included by default
-    existing_ids = set(existing_items["ids"])
-    print(f"Number of existing documents in DB: {len(existing_ids)}")
-
     # Only add documents that don't exist in the DB.
-    new_chunks = []
-    for chunk in chunks_with_ids:
-        if chunk.metadata["id"] not in existing_ids:
-            new_chunks.append(chunk)
+    document_not_in_db = len(db.get(ids=[chunk.metadata["id"] for chunk in chunks_with_ids])["ids"]) == 0
 
-    if len(new_chunks):
-        print(f"👉 Adding new documents: {len(new_chunks)}")
-        new_chunk_ids = [chunk.metadata["id"] for chunk in new_chunks]
-        db.add_documents(new_chunks, ids=new_chunk_ids)
+    if document_not_in_db:
+        print(f"👉 Adding new documents: {len(chunks_with_ids)}")
+        new_chunk_ids = [chunk.metadata["id"] for chunk in chunks_with_ids]
+        db.add_documents(chunks_with_ids, ids=new_chunk_ids)
     else:
         print("✅ No new documents to add")
 
@@ -612,8 +604,8 @@ def extract_metadata_from_source_document(source_text) -> PageMetadata:
     total_token_length = len(enc.encode(source_text))
 
     # The maximum token length for GPT-4o-mini is 128000 tokens
-    # Reduce the length of the text to fit within the token limit
-    source_text = source_text[: int(120_000 / total_token_length * len(source_text))]
+    # Reduce the length of the text to fit within the token limit and speed things up
+    source_text = source_text[: int(40_000 / total_token_length * len(source_text))]
 
     metadata = extract_chain.invoke({"raw_text": source_text})
 

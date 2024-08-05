@@ -1,4 +1,5 @@
 from langgraph.graph import END, StateGraph
+from langgraph.checkpoint.memory import MemorySaver
 from agents import (
     improve_question,
     formulate_query,
@@ -15,16 +16,18 @@ from agents import (
     decide_to_search,
     decide_to_generate,
     decide_to_add_additional_metadata,
-    GraphState
 )
+from schemas import GraphState
 import os
 from dotenv import load_dotenv
 load_dotenv()
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
+# os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
 def create_graph():
 
     workflow = StateGraph(GraphState)
+    memory = MemorySaver()
+
 
     # Define the nodes
     workflow.add_node("improve_question", improve_question)  # transform_query
@@ -71,6 +74,6 @@ def create_graph():
     )
 
     # Compile
-    app = workflow.compile()
+    app = workflow.compile(checkpointer=memory, interrupt_after=["generate"])
 
     return app

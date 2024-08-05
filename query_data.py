@@ -1,4 +1,5 @@
 import argparse
+from graph import create_graph
 import redis
 import os
 from typing import Iterator, List, Literal, Optional, Tuple
@@ -12,6 +13,7 @@ from cache import r
 
 
 load_dotenv()  # take environment variables from .env.
+app = create_graph()
 
 import sys
 
@@ -105,7 +107,13 @@ def main():
         default=None,
     )
 
-    parser.set_defaults(crawl=True, improve_question=True, initial_generation=True)
+    parser.add_argument(
+        "--add-additional-metadata",
+        action=argparse.BooleanOptionalAction,
+        help="Whether to add additional metadata to the documents to improve reranking",
+    )
+
+    parser.set_defaults(crawl=True, improve_question=True, initial_generation=True, add_additional_metadata=True)
 
     args = parser.parse_args()
     query_text = (
@@ -125,20 +133,35 @@ def main():
     elif args.get_source_doc is not None:
         query_source_documents(db, args.get_source_doc)
     else:
-        for key, value in run_query(
-            query_text,
-            db,
-            llm=args.llm,
-            rag_filter=args.rag_filter,
-            improve_question=args.improve_question,
-            search_tool=args.search_tool,
-            do_rerank=args.rerank,
-            do_crawl=args.crawl,
-            max_search_queries=args.max_search_queries,
-            language=args.language,
-            initial_generation=args.initial_generation,
-        ):
-            pass
+        continue_after_interrupt = False
+        user_happy_with_answer = False
+        while user_happy_with_answer is False:
+            for key, value in run_query(
+                query_text,
+                llm=args.llm,
+                rag_filter=args.rag_filter,
+                improve_question=args.improve_question,
+                search_tool=args.search_tool,
+                do_rerank=args.rerank,
+                do_crawl=args.crawl,
+                max_search_queries=args.max_search_queries,
+                do_add_additional_metadata=args.add_additional_metadata,
+                language=args.language,
+                initial_generation=args.initial_generation,
+                continue_after_interrupt=continue_after_interrupt,
+                happy_with_answer=user_happy_with_answer,
+            ):
+                pass
+
+            # Ask user for feedback
+            if key == "generate":
+                user_happy_with_answer = input("Are you happy with the answer? (y/n)").lower()[0] == "y"
+                continue_after_interrupt = True
+
+
+
+
+
 
 
 def get_documents_from_db(db, doc_ids: List[str]):
@@ -241,7 +264,6 @@ def get_all_documents_as_df(db) -> pd.DataFrame:
 
 def run_query(
     question: str,
-    db,
     llm: Literal["gpt-4o", 'gpt-3.5-turbo-16k', "mistral", "claude"] = "claude",
     rag_filter: Optional[str] = None,
     improve_question: Optional[bool] = True,
@@ -254,16 +276,16 @@ def run_query(
     initial_generation: Optional[bool] = True,
     history: Optional[List] = [],
     mode: Optional[Literal["gui", "cli"]] = "cli",
+    thread_id: Optional[str] = "1",
+    happy_with_answer: Optional[bool] = False,
+    continue_after_interrupt: Optional[bool] = False,
 ) -> Iterator[Tuple[str, GraphState]]:
-    from graph import create_graph
 
-    app = create_graph()
 
     # Run
     inputs = {
         "question": question,
         "question_en": question,
-        "db": db,
         "llm": llm,
         "rag_filter": rag_filter,
         "shall_improve_question": improve_question,
@@ -276,7 +298,12 @@ def run_query(
         "history": history,
         "mode": mode,
     }
-    for output in app.stream(inputs):
+
+    thread = {"configurable": {"thread_id": thread_id}}
+
+    if continue_after_interrupt:
+        app.update_state(thread, {"happy_with_answer": happy_with_answer})
+    for output in app.stream(None if continue_after_interrupt else inputs, thread):
         for key, value in output.items():
             # Node
             print(f"Node '{key}':")
@@ -304,6 +331,7 @@ def run_query(
         print("\n---\n")
 
         yield key, value
+
 
 
 if __name__ == "__main__":

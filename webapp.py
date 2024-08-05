@@ -11,6 +11,7 @@ import shutil
 import hashlib
 from langchain.schema import Document
 from gradio_log import Log
+from ulid import ULID
 
 load_dotenv()
 
@@ -146,16 +147,24 @@ def climate_chat(
     happy_with_answer = True
     getting_feedback = False
     answer = ""
-    if len(history) > 1:
+    number_of_past_questions = 0
+    if (number_of_past_questions != len(questions)):
+        getting_feedback = False
+        happy_with_answer = True
+    if (len(history) > 1):
         getting_feedback = history[-2][1] == "Are you happy with the answer? (y/n)"
         if getting_feedback:
             if message.lower() == "n":
                 happy_with_answer = False
+                yield "Okay, searching the web for more information...", questions, ""
             else:
                 happy_with_answer = True
                 getting_feedback = False
         if happy_with_answer:
             yield "Great! I'm glad I could help. What else would you like to know?", questions, ""
+            number_of_past_questions = len(questions)
+            return
+
 
     if getting_feedback:
         message = questions[-1]
@@ -166,9 +175,10 @@ def climate_chat(
     else:
         rag_filter = f"*{rag_filter}*"
     if (getting_feedback and not happy_with_answer) or not getting_feedback:
+        print("getting_feedback", getting_feedback)
+        print("happy_with_answer", happy_with_answer)
         for key, value in run_query(
             message,
-            db,
             llm="gpt-4o",
             mode="gui",
             rag_filter=rag_filter,
@@ -178,8 +188,12 @@ def climate_chat(
             max_search_queries=max_search_queries,
             do_add_additional_metadata=do_add_additional_metadata,
             history=history,
-            initial_generation=happy_with_answer,
+            initial_generation=initial_generation,
+            happy_with_answer=happy_with_answer,
+            continue_after_interrupt=getting_feedback,
+            thread_id="str(ULID())",
         ):
+            print(key)
             if key == "improve_question":
                 if improve_question:
                     yield f"""**Improved question:** {value["question"]}""" + (
@@ -228,10 +242,11 @@ def climate_chat(
                 )
 
                 yield answer, questions, answers
+                # After generation ask for feedback
+                yield f"""Are you happy with the answer? (y/n)""", questions, answers
+                return
             elif key == "add_urls_to_database":
                 yield f"""**Added new pages to database**""", questions, answers
-            elif key == "ask_user_for_feedback":
-                yield f"""Are you happy with the answer? (y/n)""", questions, answers
             else:
                 yield str(value), questions, answers
 
@@ -632,7 +647,7 @@ height: max-content;
         add_urls_to_db([url], db)
 
         # Retrieve source markdown
-        page_content = query_source_documents(db, f"*{url}*", print_output=False)[
+        page_content = query_source_documents(db, f"*{url}", print_output=False)[
             "page_content"
         ]
         if len(page_content) > 0:

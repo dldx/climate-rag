@@ -2,13 +2,13 @@ from datetime import datetime, timezone
 import msgspec
 import pandas as pd
 from helpers import generate_qa_id
-from schemas import SearchQuery, SearchQueries
+from schemas import GraphState, SearchQuery, SearchQueries
 from typing import Any, List, Literal
-from langchain.schema import Document
 from typing_extensions import TypedDict
 from langcodes import Language
 from langchain_core.output_parsers import StrOutputParser
 
+from langchain.schema import Document
 from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from llms import get_chatbot
 from langchain_core.output_parsers import JsonOutputParser
@@ -17,6 +17,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 
 from tools import (
     web_search_tool,
+    get_vector_store,
     add_urls_to_db,
     add_urls_to_db_firecrawl,
     format_docs,
@@ -34,42 +35,6 @@ load_dotenv()
 MAX_TOKEN_LENGTH = 24_000
 
 
-class GraphState(TypedDict):
-    """
-    Represents the state of our graph.
-
-    Attributes:
-        question: question
-        generation: LLM generation
-        web_search: whether to add search
-        documents: list of documents
-    """
-
-    llm: Literal["gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude"]
-    initial_question: str
-    question: str
-    question_en: str
-    search_prompts: List[SearchQuery]
-    search_query: str
-    search_query_en: str
-    max_search_queries: int
-    generation: str
-    web_search: str
-    web_search_completed: bool
-    documents: List[Document]
-    user_happy_with_answer: bool
-    db: Any
-    rag_filter: str
-    shall_improve_question: bool
-    do_rerank: bool
-    do_crawl: bool
-    do_add_additional_metadata: bool
-    search_tool: Literal["serper", "tavily", "baidu"]
-    language: Literal["en", "zh", "vi"]
-    initial_generation: bool
-    history: List[Any]
-    mode: Literal["gui", "cli"]
-    qa_id: str
 
 
 def get_current_utc_datetime():
@@ -154,7 +119,7 @@ def formulate_query(state: GraphState) -> GraphState:
     ### Convert question into search query
     from prompts import planning_agent_prompt
 
-    n_queries = max(state["max_search_queries"], 5)
+    n_queries = max(state["max_search_queries"], 1)
 
     llm = get_chatbot(
         state["llm"], model_kwargs={"response_format": {"type": "json_object"}}
@@ -238,7 +203,7 @@ def retrieve(state: GraphState) -> GraphState:
     """
     print("---RETRIEVE---")
     print("Search Queries: ", state["search_prompts"])
-    db = state["db"]
+    db = get_vector_store()
 
     ## Retrieve docs
     # 100 docs max
@@ -501,8 +466,10 @@ def web_search(state: GraphState) -> GraphState:
     # Rank results by frequency in search results and rank in individual search results
     # Use average of combined rank and frequency rank to sort
     ranked_search_results = pd.DataFrame(search_results).pipe(lambda df: df.join(df.value_counts("source"), on="source")).assign(final_rank = lambda x: x["rank"] - x["count"]).groupby("source").agg({"final_rank": "mean", "doc":"first"}).sort_values("final_rank").doc.tolist()
+    # Scale total number of results by number of queries
+    max_results_to_add = min((5 * num_queries), 20)
     # Add web search results to documents
-    documents += ranked_search_results[:30]
+    documents += ranked_search_results[:max_results_to_add]
 
     state["documents"] = documents
 
@@ -602,7 +569,7 @@ def add_urls_to_database(state: GraphState) -> GraphState:
 
     print("---ADD WEB SEARCH RESULTS TO DATABASE---")
     documents = state["documents"]
-    db = state["db"]
+    db = get_vector_store()
 
     # Add web search results to database
     # Filter only web search results
@@ -674,7 +641,7 @@ def decide_to_add_additional_metadata(state: GraphState) -> GraphState:
         return "no_add_additional_metadata"
 
 
-def ask_user_for_feedback(state):
+def ask_user_for_feedback(state: GraphState) -> GraphState:
     """
     Asks the user if they are happy with the generated answer or if we should search the web.
 
@@ -685,11 +652,7 @@ def ask_user_for_feedback(state):
         str: Binary decision for next node to call
 
     """
-    if state["mode"] == "gui":
-        user_decision = True
-    else:
-        user_decision = input("Are you happy with the answer? (y/n)").lower()[0] == "y"
-    state["user_happy_with_answer"] = user_decision
+    user_decision = state["happy_with_answer"]
 
     return {
         "user_happy_with_answer": user_decision,
