@@ -195,6 +195,8 @@ def query_source_documents(db, source_uri: str, print_output=True) -> pd.DataFra
             date_added=lambda x: pd.to_datetime(
                 x["date_added"].astype(float), unit="s", errors="coerce"
             ).dt.strftime("%Y-%m-%d"),
+        ).reindex(
+            columns=["source", "page_content", "raw_html", "date_added", "page_length", "title", "company_name"]
         )
     if print_output:
         # Return df as list of rows
