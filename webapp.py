@@ -136,9 +136,11 @@ def climate_chat(
     history,
     questions,
     answers,
+    chat_id,
     rag_filter,
     improve_question,
     do_rerank,
+    do_crawl,
     max_search_queries,
     do_add_additional_metadata,
     language,
@@ -180,8 +182,6 @@ def climate_chat(
     else:
         rag_filter = f"*{rag_filter}*"
 
-    print("getting_feedback", getting_feedback)
-    print("happy_with_answer", happy_with_answer)
     for key, value in run_query(
         message,
         llm="gpt-4o",
@@ -190,15 +190,15 @@ def climate_chat(
         improve_question=improve_question,
         language=language,
         do_rerank=do_rerank,
+        do_crawl=do_crawl,
         max_search_queries=max_search_queries,
         do_add_additional_metadata=do_add_additional_metadata,
         history=history,
         initial_generation=initial_generation,
         happy_with_answer=happy_with_answer,
         continue_after_interrupt=getting_feedback,
-        thread_id="2",
+        thread_id=chat_id,
     ):
-        print(key)
         if key == "improve_question":
             if improve_question:
                 yield f"""**Improved question:** {value["question"]}""" + (
@@ -281,10 +281,6 @@ overflow-y: scroll;
 footer {
     display:none !important
 }
-.xterm-viewport {
-width: max-content;
-height: max-content;
-}
 
 """,
 ) as demo:
@@ -292,6 +288,7 @@ height: max-content;
     chat_state = gr.State([])
     questions_state = gr.State([])
     answers_state = gr.State([])
+    chat_id_state = gr.State("")
 
     gr.Markdown("# Climate RAG")
     with gr.Tab("Chat"):
@@ -305,6 +302,7 @@ height: max-content;
                     value=True, label="Generate answer before web search?"
                 )
                 do_rerank_checkbox = gr.Checkbox(value=True, label="Rerank documents?")
+                do_crawl_checkbox = gr.Checkbox(value=False, label="Crawl within search results?")
                 do_add_additional_metadata_checkbox = gr.Checkbox(
                     value=False, label="Augment with additional metadata?")
                 max_search_queries_textbox = gr.Number(
@@ -314,15 +312,15 @@ height: max-content;
                     choices=[
                         ("English", "en"),
                         ("Chinese", "zh"),
-                        ("Vietnamese", "vi"),
-                        ("Japanese", "ja"),
+                        ("German", "de"),
                         ("Indonesian", "id"),
+                        ("Italian", "it"),
+                        ("Japanese", "ja"),
+                        ("Kazakh", "kk"),
                         ("Korean", "ko"),
                         ("Russian", "ru"),
-                        ("Kazakh", "kk"),
-                        ("Italian", "it"),
                         ("Spanish", "es"),
-                        ("German", "de"),
+                        ("Vietnamese", "vi"),
                     ],
                     label="Language",
                     value="en",
@@ -450,9 +448,11 @@ height: max-content;
         chat_history,
         questions,
         answers,
+        chat_id,
         rag_filter,
         improve_question,
         do_rerank,
+        do_crawl,
         max_search_queries,
         do_add_additional_metadata,
         language,
@@ -467,14 +467,17 @@ height: max-content;
             )
             return chat_history, chat_history, questions, None
         message = chat_history[-1][0]
+        chat_id = chat_id or str(ULID())
         bot_messages = climate_chat(
             message=message,
             history=chat_history,
             questions=questions,
             answers=answers,
+            chat_id=chat_id,
             rag_filter=rag_filter,
             improve_question=improve_question,
             do_rerank=do_rerank,
+            do_crawl=do_crawl,
             max_search_queries=max_search_queries,
             do_add_additional_metadata=do_add_additional_metadata,
             language=language,
@@ -482,7 +485,7 @@ height: max-content;
         )
         for bot_message, questions, answers in bot_messages:
             chat_history.append([None, bot_message])
-            yield chat_history, chat_history, questions, answers, *download_latest_answer(
+            yield chat_history, chat_history, questions, answers, chat_id, *download_latest_answer(
                 questions, answers
             ), f"## Chat\n### {questions[-1]}"
 
@@ -497,9 +500,11 @@ height: max-content;
             chatbot,
             questions_state,
             answers_state,
+            chat_id_state,
             rag_filter_textbox,
             improve_question_checkbox,
             do_rerank_checkbox,
+            do_crawl_checkbox,
             max_search_queries_textbox,
             do_add_additional_metadata_checkbox,
             language_dropdown,
@@ -510,6 +515,7 @@ height: max-content;
             chat_state,
             questions_state,
             answers_state,
+            chat_id_state,
             download_word_button,
             download_pdf_button,
             chat_header,
@@ -692,5 +698,5 @@ height: max-content;
     )
 
 
-demo.queue()
-demo.launch(inbrowser=False, show_api=False)
+demo.queue(default_concurrency_limit=None)
+demo.launch(inbrowser=False, show_api=False, max_threads=80)

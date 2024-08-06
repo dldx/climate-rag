@@ -22,6 +22,8 @@ You must not answer the query, only generate the questions with the most importa
 
 Do not include any search engine specific syntax in your response, only the search terms.
 
+Please use quotes around any named entities or phrases that should be searched as a single term.
+
 Ensure your response takes into account any feedback (if available).
 
 Here is your previous plan: `{plan}`
