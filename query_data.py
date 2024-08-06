@@ -113,7 +113,12 @@ def main():
         help="Whether to add additional metadata to the documents to improve reranking",
     )
 
-    parser.set_defaults(crawl=True, improve_question=True, initial_generation=True, add_additional_metadata=True)
+    parser.set_defaults(
+        crawl=True,
+        improve_question=True,
+        initial_generation=True,
+        add_additional_metadata=True,
+    )
 
     args = parser.parse_args()
     query_text = (
@@ -155,13 +160,13 @@ def main():
 
             # Ask user for feedback
             if key == "generate":
-                user_happy_with_answer = input("Are you happy with the answer? (y/n)").lower()[0] == "y"
+                user_happy_with_answer = (
+                    input("Are you happy with the answer? (y / n=web search)").lower()[
+                        0
+                    ]
+                    == "y"
+                )
                 continue_after_interrupt = True
-
-
-
-
-
 
 
 def get_documents_from_db(db, doc_ids: List[str]):
@@ -202,7 +207,15 @@ def query_source_documents(db, source_uri: str, print_output=True) -> pd.DataFra
     if len(keys) == 0:
 
         df = pd.DataFrame(
-            columns=["source", "page_content", "raw_html", "date_added", "page_length", "title", "company_name"]
+            columns=[
+                "source",
+                "page_content",
+                "raw_html",
+                "date_added",
+                "page_length",
+                "title",
+                "company_name",
+            ]
         )
     else:
         all_docs = []
@@ -213,13 +226,25 @@ def query_source_documents(db, source_uri: str, print_output=True) -> pd.DataFra
                 print(e, key)
 
             all_docs.append(doc)
-        df = pd.concat(all_docs, axis=1).T.assign(
-            # Convert unix timestamp to datetime
-            date_added=lambda x: pd.to_datetime(
-                x["date_added"].astype(float), unit="s", errors="coerce"
-            ).dt.strftime("%Y-%m-%d"),
-        ).reindex(
-            columns=["source", "page_content", "raw_html", "date_added", "page_length", "title", "company_name"]
+        df = (
+            pd.concat(all_docs, axis=1)
+            .T.assign(
+                # Convert unix timestamp to datetime
+                date_added=lambda x: pd.to_datetime(
+                    x["date_added"].astype(float), unit="s", errors="coerce"
+                ).dt.strftime("%Y-%m-%d"),
+            )
+            .reindex(
+                columns=[
+                    "source",
+                    "page_content",
+                    "raw_html",
+                    "date_added",
+                    "page_length",
+                    "title",
+                    "company_name",
+                ]
+            )
         )
     if print_output:
         # Return df as list of rows
@@ -264,7 +289,7 @@ def get_all_documents_as_df(db) -> pd.DataFrame:
 
 def run_query(
     question: str,
-    llm: Literal["gpt-4o", 'gpt-3.5-turbo-16k', "mistral", "claude"] = "claude",
+    llm: Literal["gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude"] = "claude",
     rag_filter: Optional[str] = None,
     improve_question: Optional[bool] = True,
     search_tool: Literal["serper", "tavily", "baidu"] = "serper",
@@ -280,7 +305,6 @@ def run_query(
     happy_with_answer: Optional[bool] = False,
     continue_after_interrupt: Optional[bool] = False,
 ) -> Iterator[Tuple[str, GraphState]]:
-
 
     # Run
     inputs = {
@@ -302,7 +326,19 @@ def run_query(
     thread = {"configurable": {"thread_id": thread_id}}
 
     if continue_after_interrupt:
-        app.update_state(thread, {"happy_with_answer": happy_with_answer})
+        app.update_state(
+            thread,
+            {
+                "happy_with_answer": happy_with_answer,
+                "do_rerank": do_rerank,
+                "do_crawl": do_crawl,
+                "do_add_additional_metadata": do_add_additional_metadata,
+                "language": language,
+                "shall_improve_question": improve_question,
+                "max_search_queries": max_search_queries,
+                "rag_filter": rag_filter,
+            },
+        )
     for output in app.stream(None if continue_after_interrupt else inputs, thread):
         for key, value in output.items():
             # Node
@@ -318,7 +354,11 @@ def run_query(
                             set(
                                 [
                                     (
-                                        " * " + clean_urls([doc.metadata["source"]], os.environ.get("STATIC_PATH", ""))[0]
+                                        " * "
+                                        + clean_urls(
+                                            [doc.metadata["source"]],
+                                            os.environ.get("STATIC_PATH", ""),
+                                        )[0]
                                         if "source" in doc.metadata.keys()
                                         else ""
                                     )
@@ -331,7 +371,6 @@ def run_query(
         print("\n---\n")
 
         yield key, value
-
 
 
 if __name__ == "__main__":

@@ -146,24 +146,29 @@ def climate_chat(
 ):
     happy_with_answer = True
     getting_feedback = False
+    USER_FEEDBACK_QUESTION = """Are you happy with the answer? (y / n=web search)"""
     answer = ""
     number_of_past_questions = 0
     if (number_of_past_questions != len(questions)):
         getting_feedback = False
         happy_with_answer = True
     if (len(history) > 1):
-        getting_feedback = history[-2][1] == "Are you happy with the answer? (y/n)"
+        getting_feedback = history[-2][1] == USER_FEEDBACK_QUESTION
         if getting_feedback:
-            if message.lower() == "n":
+            if message[0].lower() == "n":
                 happy_with_answer = False
-                yield "Okay, searching the web for more information...", questions, ""
+                yield None, questions, answers
+            elif message[0].lower() == "y":
+                happy_with_answer = True
+                getting_feedback = False
+                yield "Great! I'm glad I could help. What else would you like to know?", questions, answers
+                number_of_past_questions = len(questions)
+                return
             else:
                 happy_with_answer = True
                 getting_feedback = False
-        if happy_with_answer:
-            yield "Great! I'm glad I could help. What else would you like to know?", questions, ""
-            number_of_past_questions = len(questions)
-            return
+                number_of_past_questions = len(questions)
+                yield None, questions, answers
 
 
     if getting_feedback:
@@ -174,81 +179,80 @@ def climate_chat(
         rag_filter = None
     else:
         rag_filter = f"*{rag_filter}*"
-    if (getting_feedback and not happy_with_answer) or not getting_feedback:
-        print("getting_feedback", getting_feedback)
-        print("happy_with_answer", happy_with_answer)
-        for key, value in run_query(
-            message,
-            llm="gpt-4o",
-            mode="gui",
-            rag_filter=rag_filter,
-            improve_question=improve_question,
-            language=language,
-            do_rerank=do_rerank,
-            max_search_queries=max_search_queries,
-            do_add_additional_metadata=do_add_additional_metadata,
-            history=history,
-            initial_generation=initial_generation,
-            happy_with_answer=happy_with_answer,
-            continue_after_interrupt=getting_feedback,
-            thread_id="str(ULID())",
-        ):
-            print(key)
-            if key == "improve_question":
-                if improve_question:
-                    yield f"""**Improved question:** {value["question"]}""" + (
-                        """
 
-                    **Better question (en):** {value["question_en"]}"""
-                        if language != "en"
-                        else ""
-                    ), questions, answers
-                else:
-                    yield None, questions, answers
-            elif key == "formulate_query":
-                yield f"""**Generated search queries:**\n\n""" + "\n".join(
-                    [
-                        (
-                            f" * {query.query} ({query.query_en})"
-                            if language != "en"
-                            else f" * {query.query_en}"
-                        )
-                        for query in value["search_prompts"]
-                    ]
+    print("getting_feedback", getting_feedback)
+    print("happy_with_answer", happy_with_answer)
+    for key, value in run_query(
+        message,
+        llm="gpt-4o",
+        mode="gui",
+        rag_filter=rag_filter,
+        improve_question=improve_question,
+        language=language,
+        do_rerank=do_rerank,
+        max_search_queries=max_search_queries,
+        do_add_additional_metadata=do_add_additional_metadata,
+        history=history,
+        initial_generation=initial_generation,
+        happy_with_answer=happy_with_answer,
+        continue_after_interrupt=getting_feedback,
+        thread_id="2",
+    ):
+        print(key)
+        if key == "improve_question":
+            if improve_question:
+                yield f"""**Improved question:** {value["question"]}""" + (
+                    """
+
+                **Better question (en):** {value["question_en"]}"""
+                    if language != "en"
+                    else ""
                 ), questions, answers
-
-            elif key == "retrieve_from_database":
-                yield "**Retrieving documents from database...**", questions, answers
-                # yield f"""Search queries: {value["search_prompts"]}
-
-                # Retrieved from database: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
-            elif key == "web_search_node":
-                yield f"""**Searching the web for more information...**""", questions, answers
-                # yield f"""Search query: {value["search_query"]}
-
-                # Search query (en): {value["search_query_en"]}""", questions
-            elif key == "add_additional_metadata":
-                yield f"""**Fetching document titles, entities, etc...**""", questions, answers
-            elif key == "rerank_documents":
-                # yield f"""Reranked documents: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
-                yield f"""**Reranking documents...**""", questions, answers
-
-            elif key == "generate":
-                answers.append(value["qa_id"])
-                answer = compile_answer(
-                    value["generation"],
-                    value["initial_question"],
-                    [doc.metadata.get("source") for doc in value["documents"]],
-                )
-
-                yield answer, questions, answers
-                # After generation ask for feedback
-                yield f"""Are you happy with the answer? (y/n)""", questions, answers
-                return
-            elif key == "add_urls_to_database":
-                yield f"""**Added new pages to database**""", questions, answers
             else:
-                yield str(value), questions, answers
+                yield None, questions, answers
+        elif key == "formulate_query":
+            yield f"""**Generated search queries:**\n\n""" + "\n".join(
+                [
+                    (
+                        f" * {query.query} ({query.query_en})"
+                        if language != "en"
+                        else f" * {query.query_en}"
+                    )
+                    for query in value["search_prompts"]
+                ]
+            ), questions, answers
+
+        elif key == "retrieve_from_database":
+            yield "**Retrieving documents from database...**", questions, answers
+            # yield f"""Search queries: {value["search_prompts"]}
+
+            # Retrieved from database: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
+        elif key == "web_search_node":
+            yield f"""**Searching the web for more information...**""", questions, answers
+            # yield f"""Search query: {value["search_query"]}
+
+            # Search query (en): {value["search_query_en"]}""", questions
+        elif key == "add_additional_metadata":
+            yield f"""**Fetching document titles, entities, etc...**""", questions, answers
+        elif key == "rerank_documents":
+            # yield f"""Reranked documents: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
+            yield f"""**Reranking documents...**""", questions, answers
+
+        elif key == "generate":
+            answers.append(value["qa_id"])
+            answer = compile_answer(
+                value["generation"],
+                value["initial_question"],
+                [doc.metadata.get("source") for doc in value["documents"]],
+            )
+
+            yield answer, questions, answers
+            # After generation ask for feedback
+            yield USER_FEEDBACK_QUESTION, questions, answers
+        elif key == "add_urls_to_database":
+            yield f"""**Added new pages to database**""", questions, answers
+        # else:
+        #     yield str(value), questions, answers
 
 
 with gr.Blocks(

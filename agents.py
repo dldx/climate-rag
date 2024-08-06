@@ -119,7 +119,7 @@ def formulate_query(state: GraphState) -> GraphState:
     ### Convert question into search query
     from prompts import planning_agent_prompt
 
-    n_queries = max(state["max_search_queries"], 1)
+    n_queries = max(state["max_search_queries"], 5)
 
     llm = get_chatbot(
         state["llm"], model_kwargs={"response_format": {"type": "json_object"}}
