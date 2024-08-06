@@ -433,7 +433,7 @@ def web_search(state: GraphState) -> GraphState:
             docs = search.results(search_query)["organic"]
             web_results = [
                 Document(
-                    page_content=doc["snippet"],
+                    page_content=doc.get("snippet", ""),
                     metadata={"source": doc["link"], "web_search": True},
                 )
                 for doc in docs

@@ -136,7 +136,7 @@ def main():
     if len(args.get_docs) > 0:
         get_documents_from_db(db, args.get_docs)
     elif args.get_source_doc is not None:
-        query_source_documents(db, args.get_source_doc)
+        query_source_documents(db, args.get_source_doc, fields=["source", "page_content"])
     else:
         continue_after_interrupt = False
         user_happy_with_answer = False
@@ -191,7 +191,24 @@ def get_documents_from_db(db, doc_ids: List[str]):
         )
 
 
-def query_source_documents(db, source_uri: str, print_output=True) -> pd.DataFrame:
+def query_source_documents(
+    db,
+    source_uri: str,
+    print_output=True,
+    fields: Optional[
+        List[
+            Literal[
+                "source",
+                "page_content",
+                "raw_html",
+                "date_added",
+                "page_length",
+                "title",
+                "company_name",
+            ]
+        ]
+    ] = None,
+) -> pd.DataFrame:
     """
     Query the database for documents with a specific metadata key-value pair. Currently only supports querying by source.
 
@@ -203,47 +220,41 @@ def query_source_documents(db, source_uri: str, print_output=True) -> pd.DataFra
     Returns:
         pd.DataFrame: The documents that match the query
     """
+    if fields is None:
+        fields = [
+            "source",
+            "page_content",
+            "raw_html",
+            "date_added",
+            "page_length",
+            "title",
+            "company_name",
+        ]
     keys = r.keys("climate-rag::source:" + source_uri)
     if len(keys) == 0:
-
-        df = pd.DataFrame(
-            columns=[
-                "source",
-                "page_content",
-                "raw_html",
-                "date_added",
-                "page_length",
-                "title",
-                "company_name",
-            ]
-        )
+        df = pd.DataFrame(columns=fields)
     else:
         all_docs = []
         for key in keys:
             try:
-                doc = pd.Series(r.hgetall(key))
+                doc = pd.Series(dict(zip(fields, r.hmget(key, *fields))))
             except redis.exceptions.ResponseError as e:
                 print(e, key)
 
             all_docs.append(doc)
         df = (
             pd.concat(all_docs, axis=1)
-            .T.assign(
+            .T)
+        if "date_added" in fields:
+            df = (df.assign(
                 # Convert unix timestamp to datetime
                 date_added=lambda x: pd.to_datetime(
                     x["date_added"].astype(float), unit="s", errors="coerce"
                 ).dt.strftime("%Y-%m-%d"),
-            )
+            ))
+        df = (df
             .reindex(
-                columns=[
-                    "source",
-                    "page_content",
-                    "raw_html",
-                    "date_added",
-                    "page_length",
-                    "title",
-                    "company_name",
-                ]
+                columns=fields
             )
         )
     if print_output:

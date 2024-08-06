@@ -151,10 +151,10 @@ def climate_chat(
     USER_FEEDBACK_QUESTION = """Are you happy with the answer? (y / n=web search)"""
     answer = ""
     number_of_past_questions = 0
-    if (number_of_past_questions != len(questions)):
+    if number_of_past_questions != len(questions):
         getting_feedback = False
         happy_with_answer = True
-    if (len(history) > 1):
+    if len(history) > 1:
         getting_feedback = history[-2][1] == USER_FEEDBACK_QUESTION
         if getting_feedback:
             if message[0].lower() == "n":
@@ -171,7 +171,6 @@ def climate_chat(
                 getting_feedback = False
                 number_of_past_questions = len(questions)
                 yield None, questions, answers
-
 
     if getting_feedback:
         message = questions[-1]
@@ -302,11 +301,17 @@ footer {
                     value=True, label="Generate answer before web search?"
                 )
                 do_rerank_checkbox = gr.Checkbox(value=True, label="Rerank documents?")
-                do_crawl_checkbox = gr.Checkbox(value=False, label="Crawl within search results?")
+                do_crawl_checkbox = gr.Checkbox(
+                    value=False, label="Crawl within search results?"
+                )
                 do_add_additional_metadata_checkbox = gr.Checkbox(
-                    value=False, label="Augment with additional metadata?")
+                    value=False, label="Augment with additional metadata?"
+                )
                 max_search_queries_textbox = gr.Number(
-                    label="Maximum number of search queries to run", value=1, minimum=1, maximum=15
+                    label="Maximum number of search queries to run",
+                    value=1,
+                    minimum=1,
+                    maximum=15,
                 )
                 language_dropdown = gr.Dropdown(
                     choices=[
@@ -415,7 +420,13 @@ footer {
                     gr.Number(visible=False),
                 ],
                 label="Documents retrieved",
-                headers=["Title", "Company name", "Source", "Date added", "Page length"],
+                headers=[
+                    "Title",
+                    "Company name",
+                    "Source",
+                    "Date added",
+                    "Page length",
+                ],
             )
     with gr.Tab("Console"):
         log_file = "rag.log"
@@ -545,13 +556,13 @@ footer {
             search_query = ""
 
         if len(search_query) < 2:
-            search_results = query_source_documents(db, "", print_output=False)[
-                ["source"]
-            ]
+            search_results = query_source_documents(
+                db, "", print_output=False, fields=["source"]
+            )[["source"]]
         else:
             search_results = query_source_documents(
-                db, f"*{search_query}*", print_output=False
-            )[["source"]]
+                db, f"*{search_query}*", print_output=False, fields=["source"]
+            )[["source"]].iloc[:30]
             search_results["source"] = clean_urls(search_results["source"].tolist())
             # Remove static path to simplify display
             search_results["source"] = search_results["source"].apply(
@@ -628,13 +639,49 @@ footer {
             search_query = ""
 
         if len(search_query) < 3:
-            search_results = query_source_documents(db, "", print_output=False)[
-                ["title", "company_name", "source", "date_added", "page_length", "page_content"]
+            search_results = query_source_documents(
+                db,
+                "",
+                print_output=False,
+                fields=[
+                    "title",
+                    "company_name",
+                    "source",
+                    "date_added",
+                    "page_length",
+                    "page_content",
+                ],
+            )[
+                [
+                    "title",
+                    "company_name",
+                    "source",
+                    "date_added",
+                    "page_length",
+                    "page_content",
+                ]
             ]
         else:
             search_results = query_source_documents(
-                db, f"*{search_query}*", print_output=False
-            )[["title", "company_name", "source", "date_added", "page_length", "page_content"]]
+                db,
+                f"*{search_query}*",
+                print_output=False,
+                fields=[
+                    "title",
+                    "company_name",
+                    "source",
+                    "date_added",
+                    "page_length",
+                ],
+            )[
+                [
+                    "title",
+                    "company_name",
+                    "source",
+                    "date_added",
+                    "page_length",
+                ]
+            ]
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
     search_input.change(
@@ -657,9 +704,9 @@ footer {
         add_urls_to_db([url], db)
 
         # Retrieve source markdown
-        page_content = query_source_documents(db, f"*{url}", print_output=False)[
-            "page_content"
-        ]
+        page_content = query_source_documents(
+            db, f"*{url}", print_output=False, fields=["page_content"]
+        )["page_content"]
         if len(page_content) > 0:
             page_content = page_content.iloc[0]
         else:
@@ -682,7 +729,9 @@ footer {
     from tools import upload_documents
 
     new_file.upload(
-        fn=lambda x: upload_documents(x, db)[-1].metadata["source"],  # Return the last document added only
+        fn=lambda x: upload_documents(x, db)[-1].metadata[
+            "source"
+        ],  # Return the last document added only
         inputs=[new_file],
         outputs=[search_input],
         queue=False,
