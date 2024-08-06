@@ -21,7 +21,6 @@ from schemas import GraphState
 import os
 from dotenv import load_dotenv
 load_dotenv()
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
 def create_graph():
 

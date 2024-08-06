@@ -201,7 +201,7 @@ def climate_chat(
         if key == "improve_question":
             if improve_question:
                 yield f"""**Improved question:** {value["question"]}""" + (
-                    """
+                    f"""
 
                 **Better question (en):** {value["question_en"]}"""
                     if language != "en"
@@ -316,6 +316,7 @@ footer {
                 language_dropdown = gr.Dropdown(
                     choices=[
                         ("English", "en"),
+                        ("Arabic", "ar"),
                         ("Chinese", "zh"),
                         ("German", "de"),
                         ("Indonesian", "id"),

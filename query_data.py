@@ -10,6 +10,7 @@ from helpers import clean_urls
 from tools import get_vector_store
 import langcodes
 from cache import r
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
 
 load_dotenv()  # take environment variables from .env.
