@@ -112,10 +112,9 @@ def add_urls_to_db(
                                         uploaded_docs[0].metadata["source"], url, db, r
                                     )
                                 else:
-                                    print(
-                                        "Failed to download file via Headed Chrome: ", url
+                                    raise Exception(
+                                        f"Failed to download file via Headed Chrome: {url}"
                                     )
-                                    uploaded_docs = []
                             except Exception as e:
                                 # create ulid for error
                                 error_hash = str(ULID())
