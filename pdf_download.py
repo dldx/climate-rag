@@ -10,9 +10,7 @@ class DownloadedURL(TypedDict):
     url: str
     local_path: str
 
-downloaded_urls = []
-
-def download_started(download_dir: str, download: Download):
+def download_started(downloaded_urls: List[DownloadedURL], download_dir: str, download: Download):
     download_filename = download.suggested_filename
     download_filename = sanitize_filename(download_filename).replace(' ', '_')
 
@@ -23,9 +21,10 @@ def download_started(download_dir: str, download: Download):
     downloaded_urls.append({"url": download.url, "local_path": str(final_location)})
 
 def download_urls(page: Page, urls: List[str], download_dir: str) -> List[DownloadedURL]:
+    downloaded_urls = []
     for url in urls:
         # use tmp html to download
-        page.on("download", partial(download_started, download_dir))
+        page.on("download", partial(download_started, downloaded_urls, download_dir))
         with page.expect_download() as download_info:
             try:
                 page.goto(url, wait_until="networkidle")

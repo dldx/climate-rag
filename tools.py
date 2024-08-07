@@ -23,7 +23,7 @@ from langchain_core.documents import Document
 import datetime
 
 from cache import r
-from helpers import clean_urls, modify_document_source_urls, sanitize_url
+from helpers import clean_urls, modify_document_source_urls, sanitize_url, upload_file
 
 from pdf_download import download_urls_in_headed_chrome
 
@@ -546,37 +546,6 @@ def upload_documents(files: str | List[str], db) -> List[Document]:
         docs += add_urls_to_db_html([sanitize_url(dl_url)], db=db)
     return docs
 
-
-def upload_file(
-    file_name: str, bucket: str, path: str, object_name: Optional[str] = None
-):
-    """Upload a file to an S3 bucket
-
-    :param file_name: File to upload
-    :param bucket: Bucket to upload to
-    :param object_name: S3 object name. If not specified then file_name is used
-    :return: True if file was uploaded, else False
-    """
-    import boto3
-    from botocore.exceptions import ClientError
-
-    # If S3 object_name was not specified, use file_name
-    if object_name is None:
-        object_name = os.path.basename(file_name)
-
-    # Upload the file
-    s3_client = boto3.client(
-        "s3",
-        endpoint_url=os.environ.get("S3_ENDPOINT_URL", ""),
-        aws_access_key_id=os.environ.get("S3_ACCESS_KEY_ID", ""),
-        aws_secret_access_key=os.environ.get("S3_ACCESS_KEY_SECRET", ""),
-    )
-    try:
-        response = s3_client.upload_file(file_name, bucket, path + object_name)
-    except ClientError as e:
-        logging.error(e)
-        return False
-    return True
 
 
 def extract_metadata_from_source_document(source_text) -> PageMetadata:

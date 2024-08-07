@@ -1,10 +1,48 @@
+import logging
+import shutil
+from typing import List, Optional
+import msgspec
 from pathvalidate import sanitize_filename
+import os
 import pdf2docx
 import urllib.parse
 import re
 import pandas as pd
 from markdown_pdf import Section, MarkdownPdf
 
+from cache import r
+
+
+def upload_file(
+    file_name: str, bucket: str, path: str, object_name: Optional[str] = None
+):
+    """Upload a file to an S3 bucket
+
+    :param file_name: File to upload
+    :param bucket: Bucket to upload to
+    :param object_name: S3 object name. If not specified then file_name is used
+    :return: True if file was uploaded, else False
+    """
+    import boto3
+    from botocore.exceptions import ClientError
+
+    # If S3 object_name was not specified, use file_name
+    if object_name is None:
+        object_name = os.path.basename(file_name)
+
+    # Upload the file
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("S3_ENDPOINT_URL", ""),
+        aws_access_key_id=os.environ.get("S3_ACCESS_KEY_ID", ""),
+        aws_secret_access_key=os.environ.get("S3_ACCESS_KEY_SECRET", ""),
+    )
+    try:
+        response = s3_client.upload_file(file_name, bucket, path + object_name)
+    except ClientError as e:
+        logging.error(e)
+        return False
+    return True
 def md_to_pdf(md_string: str, pdf_path: str) -> str:
     """
     Convert a markdown string to a PDF file.
@@ -78,6 +116,94 @@ def generate_qa_id(question: str, answer: str) -> str:
     qa_id = sanitize_filename(f"{question_string}_{answer_hash}")
 
     return qa_id
+
+def compile_answer(generation: str, initial_question: str, sources: List[str | None]) -> str:
+    """
+    Compile the answer from the generation and the sources.
+
+    Args:
+        generation (str): The generated answer.
+        documents (List[GraphState]): The list of documents.
+
+    Returns:
+        str: The compiled answer.
+    """
+    answer = (
+        f"""# {initial_question}\n\n"""
+        + generation
+        + "\n\n**Sources:**\n\n"
+        + "\n\n".join(
+            set(
+                [
+                    (" * " + clean_urls([source], os.environ.get("STATIC_PATH", ""))[0])
+                    for source in sources
+                    if source is not None
+                ]
+            )
+        )
+    )
+
+    return answer
+
+def render_qa_pdfs(qa_id):
+    from helpers import md_to_pdf, pdf_to_docx
+    filename = sanitize_filename(qa_id)
+    qa_map = r.hgetall(f"climate-rag::answer:{qa_id}")
+    # Check if PDF is already in redis cache
+    if qa_map.get("pdf_uri", None) is not None:
+        pdf_download_url = qa_map["pdf_uri"]
+        docx_download_url = qa_map["docx_uri"]
+    else:
+        print(qa_id)
+        answer = compile_answer(
+            qa_map["answer"], qa_map["question"], msgspec.json.decode(qa_map["sources"])
+        )
+        os.makedirs("tmp", exist_ok=True)
+        pdf_path = f"tmp/{filename}.pdf"
+        docx_path = f"tmp/{filename}.docx"
+
+        md_to_pdf(answer, pdf_path)
+        pdf_to_docx(pdf_path, docx_path)
+
+        STATIC_PATH = os.environ.get("STATIC_PATH", "")
+        UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
+        USE_S3 = os.environ.get("USE_S3", False) == "True"
+
+        if (STATIC_PATH != "") and (UPLOAD_FILE_PATH != ""):
+            # Copy the files to the static path
+            os.makedirs(f"{UPLOAD_FILE_PATH}/outputs", exist_ok=True)
+            shutil.copy(pdf_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.pdf")
+            shutil.copy(docx_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.docx")
+            # Serve the files from the static path instead
+            pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
+            docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
+        elif (STATIC_PATH != "") and (USE_S3 == True):
+            # Upload the files to S3
+            if not upload_file(
+                file_name=pdf_path,
+                bucket=os.environ.get("S3_BUCKET", ""),
+                path="/outputs/",
+                object_name=f"{filename}.pdf",
+            ):
+                logging.error(f"Failed to upload {pdf_path} to S3")
+            if not upload_file(
+                file_name=docx_path,
+                bucket=os.environ.get("S3_BUCKET", ""),
+                path="/outputs/",
+                object_name=f"{filename}.docx",
+            ):
+                logging.error(f"Failed to upload {docx_path} to S3")
+            # Serve the files from S3
+            pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
+            docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
+        else:
+            pdf_download_url = pdf_path
+            docx_download_url = docx_path
+
+        # Save PDF and DOCX locations to redis cache
+        r.hset("climate-rag::answer:" + qa_id, "pdf_uri", pdf_download_url)
+        r.hset("climate-rag::answer:" + qa_id, "docx_uri", docx_download_url)
+    return pdf_download_url,docx_download_url
 
 
 def modify_document_source_urls(old_url, new_url, db, r):
