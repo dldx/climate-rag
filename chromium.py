@@ -163,6 +163,10 @@ class AsyncChromiumLoader(BaseLoader):
                 page = await context.new_page()
                 await page.route("**/*", self.block_aggressively)
                 await page.goto(url, wait_until="domcontentloaded")
+                # Scroll down to load more content
+                for i in range(5): #make the range as long as needed
+                    await page.mouse.wheel(0, 15000)
+                    time.sleep(2)
                 results = await page.content()  # Simply get the HTML content
                 logger.info("Content scraped")
             except Exception as e:

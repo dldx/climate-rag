@@ -114,11 +114,18 @@ def main():
         help="Whether to add additional metadata to the documents to improve reranking",
     )
 
+    parser.add_argument(
+        "--yes",
+        action='store_true',
+        help="Whether to automatically accept the answer",
+    )
+
     parser.set_defaults(
         crawl=True,
         improve_question=True,
         initial_generation=True,
         add_additional_metadata=True,
+        yes=False,
     )
 
     args = parser.parse_args()
@@ -161,12 +168,16 @@ def main():
 
             # Ask user for feedback
             if key == "generate":
-                user_happy_with_answer = (
-                    input("Are you happy with the answer? (y / n=web search)").lower()[
-                        0
-                    ]
-                    == "y"
-                )
+                if args.yes:
+                    user_happy_with_answer = True
+                else:
+                    user_happy_with_answer = (
+                        input("Are you happy with the answer? (y / n=web search)").lower()[
+                            0
+                        ]
+                        == "y"
+                    )
+
                 continue_after_interrupt = True
 
 
