@@ -322,7 +322,7 @@ Contents: {doc.page_content}
         from langchain_community.document_compressors import JinaRerank
         try:
             reranker = JinaRerank(model="jina-reranker-v2-base-multilingual")
-            reranked_results = reranker.rerank(query=question, documents=formatted_docs, top_n=20)
+            reranked_results = reranker.rerank(query=question, documents=formatted_docs, top_n=len(documents))
         except Exception as e:
             print("Reranker failed: ", e)
             rerank_api = "cohere"
