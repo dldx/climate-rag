@@ -2,7 +2,7 @@ import logging
 import shutil
 from typing import List, Optional
 import msgspec
-from pathvalidate import sanitize_filename
+from pathvalidate import sanitize_filename as _sanitize_filename
 import os
 import pdf2docx
 import urllib.parse
@@ -12,6 +12,17 @@ from markdown_pdf import Section, MarkdownPdf
 
 from cache import r
 
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitize a filename by removing special characters.
+
+    Args:
+        filename (str): The filename to sanitize.
+
+    Returns:
+        str: The sanitized filename.
+    """
+    return _sanitize_filename(filename).replace(" ", "_")
 
 def upload_file(
     file_name: str, bucket: str, path: str, object_name: Optional[str] = None
@@ -111,7 +122,7 @@ def generate_qa_id(question: str, answer: str) -> str:
     """
     import hashlib
 
-    question_string = question[:200].replace(" ", "_")
+    question_string = question[:200]
     answer_hash = hashlib.shake_256(answer.encode()).hexdigest(5)
     qa_id = sanitize_filename(f"{question_string}_{answer_hash}")
 

@@ -1,4 +1,6 @@
 import hashlib
+import traceback
+import pandas as pd
 from ulid import ULID
 import os
 import logging
@@ -122,14 +124,14 @@ def add_urls_to_db(
                                 r.hset(
                                     f"climate-rag::error:{error_hash}",
                                     mapping={
-                                        "error": str(e),
+                                        "error": str(traceback.format_exc()),
                                         "url": url,
                                         "date_added": datetime.datetime.now().isoformat(),
                                         "source": "headed_chrome",
                                     },
                                 )
                                 print(
-                                    f"Error downloading file via Headed Chrome: {url}. Error saved to redis with key {error_hash}"
+                                    f"['climate-rag::error:{error_hash}'] Error downloading {url} via Headed browser: {str(traceback.format_exc())}  "
                                 )
                                 uploaded_docs = []
                             docs += uploaded_docs
@@ -320,8 +322,8 @@ Content:
 
 ---
 """.format(
-            title=doc.metadata.get("title", ""),
-            company_name=doc.metadata.get("company_name", ""),
+            title=doc.metadata.get("title", "") if not pd.isna(doc.metadata.get("title")) else "",
+            company_name=doc.metadata.get("company_name", "") if not pd.isna(doc.metadata.get("company_name")) else "",
             content=doc.page_content,
             source=(
                 clean_urls([doc.metadata["source"]], os.environ.get("STATIC_PATH", ""))[
@@ -586,6 +588,7 @@ def get_source_document_extra_metadata(
     metadata_fields: List[Literal["title", "company_name", "publishing_date"]] = [
         "title"
     ],
+    use_llm: bool = True,
 ) -> Dict[str, Any]:
     """Get generated metadata for a source document from redis. If the metadata is not available, generate it first.
 
@@ -600,9 +603,9 @@ def get_source_document_extra_metadata(
     dict_to_return = {}
     for field in metadata_fields:
         field_value = r.hget(f"climate-rag::source:{source_uri}", field)
-        if field_value:
+        if field_value is not None:
             dict_to_return[field] = field_value
-        else:
+        elif use_llm:
             # Generate metadata from source document
             # Try to get the raw_html or page_content from redis
             source_text = r.hget(f"climate-rag::source:{source_uri}", "raw_html")

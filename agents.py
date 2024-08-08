@@ -247,10 +247,10 @@ from tools import get_source_document_extra_metadata
 from functools import partial
 
 
-def get_metadata_for_source(r, source):
+def get_metadata_for_source(r, use_llm: bool, source: str) -> dict:
     try:
         metadata = get_source_document_extra_metadata(
-            r, source, metadata_fields=["title", "company_name"]
+            r, source, metadata_fields=["title", "company_name"], use_llm=use_llm
         )
     except:
         # If metadata not found, continue
@@ -270,9 +270,6 @@ def add_additional_metadata(state: GraphState) -> GraphState:
         state (dict): Updates documents key with additional metadata
     """
 
-    if state["do_add_additional_metadata"] == False:
-        return {"documents": state["documents"]}
-
     print("---ADD ADDITIONAL METADATA TO DOCUMENTS---")
     documents = state["documents"]
 
@@ -282,11 +279,11 @@ def add_additional_metadata(state: GraphState) -> GraphState:
     unique_sources = list(set([doc.metadata.get("source", None) for doc in documents]))
     # For each source, get titles and company names (if available)
     # Use partial to pass the 'r' argument to the function
-    func = partial(get_metadata_for_source, r)
+    func = partial(get_metadata_for_source, r, state["do_add_additional_metadata"])
     source_metadatas = list(map(func, unique_sources))
 
     # Now add metadata to documents
-    source_metadatas_df = pd.DataFrame(source_metadatas).set_index("source")
+    source_metadatas_df = pd.DataFrame(source_metadatas).reindex(["source", "title", "company_name"], axis=1).set_index("source")
     for doc in documents:
         doc.metadata = {
             **doc.metadata,
@@ -311,35 +308,51 @@ def rerank_docs(state: GraphState) -> GraphState:
     print("---RERANK DOCUMENTS---")
     documents = state["documents"]
     question = state["question"]
-
-    # Cohere API
-    import cohere
-
-    co = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
-
-    try:
-        reranked_results = co.rerank(
-            model="rerank-multilingual-v3.0",
-            query=question,
-            documents=[
-                f"""Title: {doc.metadata.get("title", "")}
-Company name: '{doc.metadata.get("company_name", "")}'
-
+    formatted_docs = [
+            f"""Title: {doc.metadata.get("title", "") if not pd.isna(doc.metadata.get("title", "")) else ""}
+Company name: '{doc.metadata.get("company_name", "") if not pd.isna(doc.metadata.get("company_name", "")) else ""}'
 Contents: {doc.page_content}
 """
-                for doc in documents
-            ],
-        )
-        state["documents"] = [
-            documents[docIndex.index]
-            for docIndex in reranked_results.results
-            if docIndex.relevance_score > 0.05
+            for doc in documents
         ]
-        print(
-            "Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]]
-        )
-    except Exception as e:
-        print("Reranker failed: ", e)
+
+    rerank_api = "jina"
+
+    if rerank_api == "jina":
+        from langchain_community.document_compressors import JinaRerank
+        try:
+            reranker = JinaRerank(model="jina-reranker-v2-base-multilingual")
+            reranked_results = reranker.rerank(query=question, documents=formatted_docs, top_n=20)
+        except Exception as e:
+            print("Reranker failed: ", e)
+            rerank_api = "cohere"
+        state["documents"] = [
+            documents[docIndex["index"]]
+            for docIndex in reranked_results
+            if docIndex["relevance_score"] > 0.05
+        ]
+    if rerank_api == "cohere":
+        # Cohere API
+        import cohere
+
+        co = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
+
+        try:
+            reranked_results = co.rerank(
+                model="rerank-multilingual-v3.0",
+                query=question,
+                documents=formatted_docs,
+            )
+            state["documents"] = [
+                documents[docIndex.index]
+                for docIndex in reranked_results.results
+                if docIndex.relevance_score > 0.05
+            ]
+        except Exception as e:
+            print("Reranker failed: ", e)
+    print(
+        "Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]]
+    )
 
     return {"documents": state["documents"]}
 

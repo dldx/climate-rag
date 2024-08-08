@@ -15,14 +15,18 @@ from ulid import ULID
 
 load_dotenv()
 
-from helpers import clean_urls, compile_answer, generate_qa_id, render_qa_pdfs, sanitize_url
+from helpers import (
+    clean_urls,
+    compile_answer,
+    generate_qa_id,
+    render_qa_pdfs,
+    sanitize_url,
+)
 from query_data import query_source_documents, run_query
 from tools import get_vector_store
 from cache import r
 
 db = get_vector_store()
-
-
 
 
 def download_latest_answer(
@@ -35,7 +39,6 @@ def download_latest_answer(
         questions (List[str]): The list of questions.
         answers (List[str]): The list of answers.
     """
-
 
     if len(answers) == 0 or len(questions) > len(answers):
         return gr.DownloadButton(visible=False), gr.DownloadButton(visible=False)
@@ -264,7 +267,15 @@ footer {
 
             with gr.Column(scale=4):
                 chat_header = gr.Markdown("## Chat")
-                chatbot = gr.Chatbot(elem_id="chatbot", scale=4, show_label=False)
+                chatbot = gr.Chatbot(
+                    elem_id="chatbot",
+                    scale=4,
+                    show_label=False,
+                    latex_delimiters=[
+                        {"left": "$$", "right": "$$", "display": True},
+                        {"left": "\\[", "right": "\\]", "display": True},
+                    ],
+                )
                 with gr.Row():
                     chat_input = gr.MultimodalTextbox(
                         elem_id="msg-box",
@@ -298,8 +309,21 @@ footer {
             query_history_display = gr.Dataset(
                 components=[
                     gr.Textbox(visible=False),
-                    gr.Markdown(visible=False),
-                    gr.Markdown(visible=False, elem_classes=["scroll-y", "h-20"]),
+                    gr.Markdown(
+                        visible=False,
+                        latex_delimiters=[
+                            {"left": "$$", "right": "$$", "display": True},
+                            {"left": "\\[", "right": "\\]", "display": True},
+                        ],
+                    ),
+                    gr.Markdown(
+                        visible=False,
+                        latex_delimiters=[
+                            {"left": "$$", "right": "$$", "display": True},
+                            {"left": "\\[", "right": "\\]", "display": True},
+                        ],
+                        elem_classes=["scroll-y", "h-20"],
+                    ),
                     gr.HTML(visible=False),
                     gr.HTML(visible=False),
                 ],
