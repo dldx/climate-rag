@@ -42,21 +42,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+error_messages = {
+    "SecurityCompromiseError": "SecurityCompromiseError",
+    "InsufficientBalanceError": "InsufficientBalanceError",
+    "AssertionFailureError": "AssertionFailureError",
+    "TimeoutError": "TimeoutError",
+    "Error: Page.goto: Timeout 30000ms exceeded.": "Timeout exceeded.",
+    "Verifying you are human.": "Page requires human verification",
+    "please click the box below to let us know you're not a robot": "Page requires human verification",
+    "The connection to the origin web server was made, but the origin web server timed out before responding. The likely cause is an overloaded background task, database or application, stressing the resources on your web server.": "Cloudflare timeout error",
+}
 
 def check_page_content_for_errors(page_content: str):
-    if "SecurityCompromiseError" in page_content:
-        return "SecurityCompromiseError"
-    elif "InsufficientBalanceError" in page_content:
-        return "InsufficientBalanceError"
-    elif "AssertionFailureError" in page_content:
-        return "AssertionFailureError"
-    elif "TimeoutError" in page_content:
-        return "TimeoutError"
-    elif (page_content == "") or (len(page_content) < 600):
+    for error, return_message in error_messages.items():
+        if error in page_content:
+            return return_message
+
+    if (page_content == "") or (len(page_content) < 600):
         return "Empty or minimal page content"
-    elif "Error: Page.goto: Timeout 30000ms exceeded." in page_content:
-        return "Timeout exceeded."
-    elif bool(
+    if bool(
         re.search(
             "(404*.not found)|(page not found)|(page cannot be found)|(HTTP404)|(File or directory not found.)|(Page You Requested Was Not Found)|(Error: Page.goto:)|(404 error)|(404 Not Found)|(404 Page Not Found)|(Error 404)|(404 - File or directory not found)|(HTTP Error 404)|(Not Found - 404)|(404 - Not Found)|(404 - Page Not Found)|(Error 404 - Not Found)|(404 - File Not Found)|(HTTP 404 - Not Found)|(404 - Resource Not Found)",
             page_content,
@@ -64,10 +68,7 @@ def check_page_content_for_errors(page_content: str):
         )
     ):
         return "Page not found in content"
-    elif "Verifying you are human." in page_content:
-        return "Page requires human verification"
-    else:
-        return None
+    return None
 
 
 def add_urls_to_db(
@@ -86,6 +87,9 @@ def add_urls_to_db(
             if url.lower().endswith(".md"):
                 # Can directly download markdown without any processing
                 docs += add_urls_to_db_html([url], db)
+            elif url.lower().endswith(".xls") or url.lower().endswith(".xlsx") or url.lower().endswith(".zip"):
+                # Cannot load excel files right now
+                raise Exception(f"Cannot load Excel files: {url}")
             else:
                 if use_firecrawl:
                     docs += add_urls_to_db_firecrawl([url], db)
@@ -148,6 +152,12 @@ def add_urls_to_db(
                             docs += add_urls_to_db_html(
                                 ["https://r.jina.ai/" + url], db
                             )
+            # Fetch additional metadata
+            # There should only be one url in this but just in case
+            for i in set(map(lambda x: x.metadata["source"], docs) ):
+                print("Fetching additional metadata for: ", i)
+                get_source_document_extra_metadata(r, i)
+
         else:
             print("Already in database: ", url)
     return docs
@@ -309,6 +319,23 @@ def add_urls_to_db_chrome(urls: List[str], db, headless=True) -> List[Document]:
             docs_to_return.append(doc)
 
     return docs_to_return
+
+def delete_document_from_db(source_uri: str, db, r):
+    from redis import ResponseError
+    # Delete document from redis
+    existed = r.delete(f"climate-rag::source:{source_uri}") == 1
+    if existed:
+        print(f"Deleted document from redis: {source_uri}")
+    else:
+        print(f"Document not found in redis: {source_uri}")
+    # Delete document from chroma db
+    docs = db.get(where={"source": {"$in": [source_uri]}}, include=[])
+    if len(docs["ids"]) > 0:
+        db.delete(ids=docs["ids"])
+        print(f"""Deleted {len(docs["ids"])} documents from chroma db: {source_uri}""")
+    else:
+        print(f"Document not found in chroma db: {source_uri}")
+
 
 
 def format_docs(docs):
@@ -590,6 +617,7 @@ def get_source_document_extra_metadata(
     ],
     use_llm: bool = True,
 ) -> Dict[str, Any]:
+    from langchain_core.exceptions import OutputParserException
     """Get generated metadata for a source document from redis. If the metadata is not available, generate it first.
 
     Args:
@@ -601,11 +629,11 @@ def get_source_document_extra_metadata(
     """
     # Check if metadata is available in redis
     dict_to_return = {}
-    for field in metadata_fields:
-        field_value = r.hget(f"climate-rag::source:{source_uri}", field)
+    field_map = dict(zip(metadata_fields, r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields)))
+    for field_key, field_value in field_map.items():
         if field_value is not None:
-            dict_to_return[field] = field_value
-        elif use_llm:
+            dict_to_return[field_key] = field_value
+        elif use_llm and (r.hget(f"climate-rag::source:{source_uri}", "fetched_additional_metadata") != "true"):
             # Generate metadata from source document
             # Try to get the raw_html or page_content from redis
             source_text = r.hget(f"climate-rag::source:{source_uri}", "raw_html")
@@ -613,15 +641,28 @@ def get_source_document_extra_metadata(
                 source_text = r.hget(
                     f"climate-rag::source:{source_uri}", "page_content"
                 )
+            if not source_text or len(source_text) < 100:
+                return {}
             # Extract metadata from source document using LLM
-            page_metadata = extract_metadata_from_source_document(source_text)
-            # Save metadata to redis
-            page_metadata_map = page_metadata.dict()
+            try:
+                page_metadata = extract_metadata_from_source_document(source_text)
+                # Save metadata to redis
+                page_metadata_map = page_metadata.dict()
+            except OutputParserException:
+                return {}
+
             # Convert publishing date to timestamp
-            if page_metadata_map["publishing_date"]:
-                page_metadata_map["publishing_date"] = int(
-                    datetime.datetime(*page_metadata_map["publishing_date"]).timestamp()
-                )
+            if page_metadata_map.get("publishing_date", None):
+                # Check if year is missing
+                if page_metadata_map["publishing_date"][0] is None:
+                    # Set the whole date to None because we can't have a date without a year
+                    page_metadata_map["publishing_date"] = None
+                else:
+                    # Fill missing month and day with 1
+                    page_metadata_map["publishing_date"] = pd.Series(page_metadata_map["publishing_date"]).fillna(1).astype(int).tolist()
+                    page_metadata_map["publishing_date"] = int(
+                        datetime.datetime(*page_metadata_map["publishing_date"]).timestamp()
+                    )
             # Convert key_entities to json
             page_metadata_map["key_entities"] = msgspec.json.encode(
                 page_metadata_map["key_entities"]
@@ -629,9 +670,15 @@ def get_source_document_extra_metadata(
             page_metadata_map["keywords"] = msgspec.json.encode(
                 page_metadata_map["keywords"]
             )
+            page_metadata_map["self_published"] = msgspec.json.encode(
+                page_metadata_map["self_published"]
+            )
+            page_metadata_map["fetched_additional_metadata"] = "true"
             # Save metadata to redis
+            page_metadata_map = {k: v for k, v in page_metadata_map.items() if v is not None}
             r.hset(f"climate-rag::source:{source_uri}", mapping=page_metadata_map)
 
-            dict_to_return[field] = page_metadata_map[field]
+            if page_metadata_map.get(field_key, None) is not None:
+                dict_to_return[field_key] = page_metadata_map[field_key]
 
     return dict_to_return

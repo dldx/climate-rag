@@ -312,7 +312,7 @@ def get_all_documents_as_df(db) -> pd.DataFrame:
 
 def run_query(
     question: str,
-    llm: Literal["gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude"] = "claude",
+    llm: Literal["gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude", "llama-3.1"] = "claude",
     rag_filter: Optional[str] = None,
     improve_question: Optional[bool] = True,
     search_tool: Literal["serper", "tavily", "baidu"] = "serper",

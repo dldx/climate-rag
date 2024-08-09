@@ -173,7 +173,7 @@ The metadata you need to extract includes a relevant title for the document, the
 
 If you are unable to extract any of the metadata, you should return None for that field.
 
-You should return the extracted metadata in a structured format.
+You should return the extracted metadata in a structured JSON format.
 
 {response_format}
 """
