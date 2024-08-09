@@ -38,6 +38,7 @@ def download_urls(page: Page, urls: List[str], download_dir: str) -> List[Downlo
 def download_urls_in_headed_chrome(urls: List[str], download_dir: str) -> List[DownloadedURL]:
     with sync_playwright() as p:
         browser = p.firefox.launch(headless = False)
+        context = browser.new_context(ignore_https_errors = True)
 
-        page = browser.new_page()
+        page = context.new_page()
         return download_urls(page, urls=urls, download_dir=download_dir)
