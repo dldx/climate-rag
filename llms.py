@@ -4,7 +4,6 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_community.chat_models import ChatOllama
 from langchain_experimental.llms.ollama_functions import OllamaFunctions
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -29,6 +28,7 @@ def get_chatbot(
     if llm in ["gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k"]:
         return ChatOpenAI(model=llm, **kwargs)
     elif llm in ["llama-3.1"]:
+        from langchain_nvidia_ai_endpoints import ChatNVIDIA
         return ChatNVIDIA(
             model="meta/llama-3.1-405b-instruct",
             api_key=os.getenv("NVIDIA_API_KEY"),
