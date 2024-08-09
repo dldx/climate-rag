@@ -99,7 +99,7 @@ def add_urls_to_db(
                             ["https://r.jina.ai/" + url], db
                         )
                         # Check if the URL has been successfully processed
-                        if url in list(map(lambda x: x.metadata["source"], jina_docs)):
+                        if url in list(map(lambda x: x.metadata["source"].replace("https://r.jina.ai/", ""), jina_docs)):
                             docs += jina_docs
                         else:
                             # Otherwise, download file using headed chrome
