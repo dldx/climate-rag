@@ -17,7 +17,7 @@ if __name__ == "__main__":
             error_message.replace(":", "?").replace(",", "?").replace(".", "?")
         )
         results = (
-            r.ft("source")
+            r.ft("idx:source")
             .search(
                 Query(f'@page_content: "{error_message}"' """@page_length:[0 10000]""")
                 .dialect(2)
@@ -32,10 +32,10 @@ if __name__ == "__main__":
             )
             all_errors.extend(results)
 
-    # Search for all documents with page_length less than 1000
+    # Search for all documents with page_length less than 600 characters
     results = (
-        r.ft("source")
-        .search(Query("@page_length:[0 1000]").dialect(2).return_fields("source")
+        r.ft("idx:source")
+        .search(Query("@page_length:[0 600]").dialect(2).return_fields("source")
                 .paging(0, 10000))
         .docs
     )

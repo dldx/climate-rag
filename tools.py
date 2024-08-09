@@ -152,14 +152,14 @@ def add_urls_to_db(
                             docs += add_urls_to_db_html(
                                 ["https://r.jina.ai/" + url], db
                             )
-            # Fetch additional metadata
-            # There should only be one url in this but just in case
-            for i in set(map(lambda x: x.metadata["source"], docs) ):
-                print("Fetching additional metadata for: ", i)
-                get_source_document_extra_metadata(r, i)
 
         else:
             print("Already in database: ", url)
+    # Fetch additional metadata
+    # There should only be one url in this but just in case
+    for i in set(map(lambda x: x.metadata["source"], docs) ):
+        print("Fetching additional metadata for:", i)
+        get_source_document_extra_metadata(r, i)
     return docs
 
 
