@@ -11,6 +11,7 @@ import pandas as pd
 from markdown_pdf import Section, MarkdownPdf
 
 from cache import r
+from schemas import SourceMetadata
 
 def sanitize_filename(filename: str) -> str:
     """
@@ -235,3 +236,64 @@ def modify_document_source_urls(old_url, new_url, db, r):
         db._collection.update(ids=docs["ids"], metadatas=docs["metadatas"])
     else:
         print(f"No chroma documents found with source: {old_url}")
+
+
+def bin_list_into_chunks(lst, n_chunks):
+    """
+    Bin a list into n_chunks.
+
+    Args:
+        lst (list): The list to bin.
+        n_chunks (int): The number of chunks to bin into.
+
+    Returns:
+        list: A list of lists representing the chunks.
+    """
+    chunk_size = len(lst) // n_chunks
+    remainder = len(lst) % n_chunks
+
+    chunks = []
+    start = 0
+
+    for i in range(n_chunks):
+        end = start + chunk_size + (1 if i < remainder else 0)
+        chunks.append(lst[start:end])
+        start = end
+
+    return chunks
+
+def clean_up_metadata_object(source_metadata: SourceMetadata) -> dict:
+    import datetime
+
+    source_metadata_map = source_metadata.dict()
+
+    # Convert publishing date to timestamp
+    if source_metadata_map.get("publishing_date", None):
+        # Check if year is missing
+        if source_metadata_map["publishing_date"][0] is None:
+            # Set the whole date to None because we can't have a date without a year
+            source_metadata_map["publishing_date"] = None
+        else:
+            # Fill missing month and day with 1
+            source_metadata_map["publishing_date"] = pd.Series(source_metadata_map["publishing_date"]).fillna(1).astype(int).tolist()
+            source_metadata_map["publishing_date"] = int(
+                datetime.datetime(*source_metadata_map["publishing_date"]).timestamp()
+            )
+    # Convert key_entities to json
+    source_metadata_map["key_entities"] = msgspec.json.encode(
+        source_metadata_map["key_entities"]
+    )
+    source_metadata_map["keywords"] = msgspec.json.encode(
+        source_metadata_map["keywords"]
+    )
+    source_metadata_map["self_published"] = msgspec.json.encode(
+        source_metadata_map["self_published"]
+    )
+    if source_metadata_map.get("scanned_pdf", None) is not None:
+        source_metadata_map["scanned_pdf"] = msgspec.json.encode(
+        source_metadata_map["scanned_pdf"]
+    )
+    # Save metadata to redis
+    source_metadata_map = {k: v for k, v in source_metadata_map.items() if v is not None}
+
+    return source_metadata_map

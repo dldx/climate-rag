@@ -177,3 +177,22 @@ You should return the extracted metadata in a structured JSON format.
 
 {response_format}
 """
+
+pdf_metadata_extractor_prompt = """You are a PDF reader that extracts metadata from a PDF document. The metadata you need to extract includes the title of the document, the company name, the publishing date, the key entity, the key entities, the type of document, the keywords, whether the document is self-published, as well as the page count.
+
+If you are unable to extract any of the metadata, you should return None for that field.
+
+You should return the extracted metadata in a structured JSON format:
+
+{response_format}
+
+Do not include any text aside from the JSON in your response.
+"""
+
+convert_to_md_prompt = """Please convert the document supplied into markdown and format tables as markdown tables.
+
+Summarise any images or charts (including a title and brief description of what is shown). Return all tables in markdown format.
+
+Return the page numbers in the output with the format `## Page n of {n_pages}`.
+
+Return only {pages_to_return}."""

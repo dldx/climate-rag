@@ -20,12 +20,13 @@ import msgspec
 from get_embedding_function import get_embedding_function
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
+from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 import datetime
 
 from cache import r
-from helpers import clean_urls, modify_document_source_urls, sanitize_url, upload_file
+from helpers import clean_up_metadata_object, clean_urls, modify_document_source_urls, sanitize_url, upload_file
 
 from pdf_download import download_urls_in_headed_chrome
 
@@ -52,6 +53,31 @@ error_messages = {
     "please click the box below to let us know you're not a robot": "Page requires human verification",
     "The connection to the origin web server was made, but the origin web server timed out before responding. The likely cause is an overloaded background task, database or application, stressing the resources on your web server.": "Cloudflare timeout error",
 }
+
+def store_error_in_redis(url: str, error: str, source: str):
+    """
+    Store an error in Redis for later analysis.
+
+    Args:
+        url (str): The URL that caused the error.
+        error (str): The error message.
+        source (str): The source function/tool of the error.
+    """
+    # create ulid for error
+    error_hash = str(ULID())
+    # Save error to redis
+    r.hset(
+        f"climate-rag::error:{error_hash}",
+        mapping={
+            "error": error,
+            "url": url,
+            "date_added": datetime.datetime.now().isoformat(),
+            "source": source,
+        },
+    )
+    print(f"['climate-rag::error:{error_hash}'] Error loading {url}: {error}  ")
+
+    return error_hash
 
 def check_page_content_for_errors(page_content: str):
     for error, return_message in error_messages.items():
@@ -119,29 +145,16 @@ def add_urls_to_db(
                                             uploaded_docs[0].metadata["source"], url, db, r
                                         )
                                     else:
-                                        raise Exception(
-                                            f"Failed to upload file to database: {url}"
+                                        # Try using Gemini to process the PDF
+                                        uploaded_docs = add_document_to_db_via_gemini(
+                                            downloaded_urls[0]["local_path"], url, db
                                         )
                                 else:
                                     raise Exception(
                                         f"Failed to download file via Headed Chrome: {url}"
                                     )
                             except Exception as e:
-                                # create ulid for error
-                                error_hash = str(ULID())
-                                # Save error to redis
-                                r.hset(
-                                    f"climate-rag::error:{error_hash}",
-                                    mapping={
-                                        "error": str(traceback.format_exc()),
-                                        "url": url,
-                                        "date_added": datetime.datetime.now().isoformat(),
-                                        "source": "headed_chrome",
-                                    },
-                                )
-                                print(
-                                    f"['climate-rag::error:{error_hash}'] Error downloading {url} via Headed browser: {str(traceback.format_exc())}  "
-                                )
+                                error_hash = store_error_in_redis(url, str(traceback.format_exc()), "headed_chrome")
                                 uploaded_docs = []
                             docs += uploaded_docs
                     else:
@@ -228,9 +241,42 @@ def add_urls_to_db_html(urls: List[str], db) -> List[Document]:
             print("Already in database: ", url)
     return docs
 
+def add_document_to_db_via_gemini(doc_uri: os.PathLike | str, original_uri: str, db) -> List[Document]:
+    from process_pdf_via_gemini import process_pdf_via_gemini
+
+    docs = []
+    ids_existing = r.keys(f"*{original_uri}")
+    # Only add url if it is not already in the database
+    if len(ids_existing) == 0:
+        print("[Gemini] Adding to database: ", original_uri)
+        try:
+            pdf_metadata, pdf_contents = process_pdf_via_gemini(doc_uri)
+            doc = Document(
+                metadata={
+                    "source": original_uri,
+                    "date_added": datetime.datetime.now().isoformat(),
+                    "loader": "gemini"
+                },
+                page_content=pdf_contents,
+            )
+            page_errors = check_page_content_for_errors(doc.page_content)
+            if page_errors:
+                store_error_in_redis(original_uri, page_errors, "gemini")
+            else:
+                chunks = split_documents(filter_complex_metadata([doc]))
+                add_to_chroma(db, chunks)
+                doc.metadata = {**clean_up_metadata_object(pdf_metadata), **doc.metadata}
+                doc.metadata["fetched_additional_metadata"] = 'true'
+                add_doc_to_redis(r, doc)
+                docs += [doc]
+        except Exception as e:
+            store_error_in_redis(original_uri, str(traceback.format_exc()), "gemini")
+    else:
+        print("Already in database: ", original_uri)
+
+    return docs
 
 def add_urls_to_db_firecrawl(urls: List[str], db):
-    from langchain_community.vectorstores.utils import filter_complex_metadata
 
     docs = []
     for url in urls:
@@ -490,7 +536,7 @@ def calculate_chunk_ids(chunks):
     return chunks
 
 
-from schemas import PageMetadata, SearchQuery
+from schemas import SourceMetadata, SearchQuery
 
 
 def _unique_documents(documents: Sequence[Document]) -> List[Document]:
@@ -582,7 +628,7 @@ def upload_documents(files: str | List[str], db) -> List[Document]:
 
 
 
-def extract_metadata_from_source_document(source_text) -> PageMetadata:
+def extract_metadata_from_source_document(source_text) -> SourceMetadata:
     from llms import get_chatbot
     from prompts import metadata_extractor_prompt
     from langchain_core.output_parsers import PydanticOutputParser
@@ -590,7 +636,7 @@ def extract_metadata_from_source_document(source_text) -> PageMetadata:
 
     from langchain.prompts import PromptTemplate, ChatPromptTemplate
 
-    parser = PydanticOutputParser(pydantic_object=PageMetadata)
+    parser = PydanticOutputParser(pydantic_object=SourceMetadata)
 
     llm = get_chatbot("gpt-4o-mini")
 
@@ -651,36 +697,13 @@ def get_source_document_extra_metadata(
             # Extract metadata from source document using LLM
             try:
                 page_metadata = extract_metadata_from_source_document(source_text)
-                # Save metadata to redis
-                page_metadata_map = page_metadata.dict()
             except OutputParserException:
                 return {}
 
-            # Convert publishing date to timestamp
-            if page_metadata_map.get("publishing_date", None):
-                # Check if year is missing
-                if page_metadata_map["publishing_date"][0] is None:
-                    # Set the whole date to None because we can't have a date without a year
-                    page_metadata_map["publishing_date"] = None
-                else:
-                    # Fill missing month and day with 1
-                    page_metadata_map["publishing_date"] = pd.Series(page_metadata_map["publishing_date"]).fillna(1).astype(int).tolist()
-                    page_metadata_map["publishing_date"] = int(
-                        datetime.datetime(*page_metadata_map["publishing_date"]).timestamp()
-                    )
-            # Convert key_entities to json
-            page_metadata_map["key_entities"] = msgspec.json.encode(
-                page_metadata_map["key_entities"]
-            )
-            page_metadata_map["keywords"] = msgspec.json.encode(
-                page_metadata_map["keywords"]
-            )
-            page_metadata_map["self_published"] = msgspec.json.encode(
-                page_metadata_map["self_published"]
-            )
-            page_metadata_map["fetched_additional_metadata"] = "true"
+
             # Save metadata to redis
-            page_metadata_map = {k: v for k, v in page_metadata_map.items() if v is not None}
+            page_metadata_map = clean_up_metadata_object(page_metadata)
+            page_metadata_map["fetched_additional_metadata"] = "true"
             r.hset(f"climate-rag::source:{source_uri}", mapping=page_metadata_map)
 
     # Return metadata fields from redis
