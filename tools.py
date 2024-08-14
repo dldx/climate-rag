@@ -113,10 +113,15 @@ def add_urls_to_db(
                                     uploaded_docs = upload_documents(
                                         files=[downloaded_urls[0]["local_path"]], db=db
                                     )
-                                    # Change the source to the original URL
-                                    modify_document_source_urls(
-                                        uploaded_docs[0].metadata["source"], url, db, r
-                                    )
+                                    if len(uploaded_docs) > 0:
+                                        # Change the source to the original URL
+                                        modify_document_source_urls(
+                                            uploaded_docs[0].metadata["source"], url, db, r
+                                        )
+                                    else:
+                                        raise Exception(
+                                            f"Failed to upload file to database: {url}"
+                                        )
                                 else:
                                     raise Exception(
                                         f"Failed to download file via Headed Chrome: {url}"
@@ -612,7 +617,7 @@ def extract_metadata_from_source_document(source_text) -> PageMetadata:
 def get_source_document_extra_metadata(
     r,
     source_uri,
-    metadata_fields: List[Literal["title", "company_name", "publishing_date"]] = [
+    metadata_fields: List[Literal["title", "company_name", "publishing_date", "source"]] = [
         "title"
     ],
     use_llm: bool = True,
@@ -632,7 +637,7 @@ def get_source_document_extra_metadata(
     field_map = dict(zip(metadata_fields, r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields)))
     for field_key, field_value in field_map.items():
         if field_value is not None:
-            dict_to_return[field_key] = field_value
+            pass
         elif use_llm and (r.hget(f"climate-rag::source:{source_uri}", "fetched_additional_metadata") != "true"):
             # Generate metadata from source document
             # Try to get the raw_html or page_content from redis
@@ -678,7 +683,10 @@ def get_source_document_extra_metadata(
             page_metadata_map = {k: v for k, v in page_metadata_map.items() if v is not None}
             r.hset(f"climate-rag::source:{source_uri}", mapping=page_metadata_map)
 
-            if page_metadata_map.get(field_key, None) is not None:
-                dict_to_return[field_key] = page_metadata_map[field_key]
+    # Return metadata fields from redis
+    field_map = dict(zip(metadata_fields, r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields)))
+    # Filter out None values
+    dict_to_return = {k: v for k, v in field_map.items() if v is not None}
+
 
     return dict_to_return

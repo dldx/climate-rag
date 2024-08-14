@@ -11,14 +11,14 @@ load_dotenv()
 
 def get_chatbot(
     llm: Literal[
-        "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude"
+        "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude", "llama-3.1"
     ] = "claude",
     **kwargs
 ):
     """Get a chatbot instance.
 
     Args:
-        llm: The language model to use. Options are "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", or "claude".
+        llm: The language model to use. Options are "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude" or "llama-3.1".
         **kwargs: optional keyword arguments to pass to the chat model
 
     Returns:
