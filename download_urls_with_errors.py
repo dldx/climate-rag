@@ -13,5 +13,6 @@ if __name__ == "__main__":
                 urls_to_download.append(url)
 
     urls_to_download = list(set(urls_to_download))
+    breakpoint()
     print(f"Downloading {len(urls_to_download)} urls:", urls_to_download)
     docs = add_urls_to_db(urls=urls_to_download, db=db)

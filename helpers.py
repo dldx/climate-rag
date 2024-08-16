@@ -84,8 +84,22 @@ def pdf_to_docx(pdf_path: str, docx_path: str) -> str:
 
     return docx_path
 
-def sanitize_url(url):
-    domain_part, filename_part = url.rsplit("/", 1)
+def sanitize_url(url: str) -> str:
+    """
+    Sanitize a URL by encoding special characters.
+
+    Args:
+        url (str): The URL to sanitize.
+
+    Returns:
+        str: The sanitized URL.
+    """
+
+    try:
+        domain_part, filename_part = url.rsplit("/", 1)
+    except ValueError:
+        # Issues with the url, return it as is
+        return url
 
     return domain_part + "/" + urllib.parse.quote(filename_part)
 
@@ -161,12 +175,14 @@ def render_qa_pdfs(qa_id):
     from helpers import md_to_pdf, pdf_to_docx
     filename = sanitize_filename(qa_id)
     qa_map = r.hgetall(f"climate-rag::answer:{qa_id}")
+    if len(qa_map["question"]) == 0:
+        qa_map["question"] = "No question provided"
     # Check if PDF is already in redis cache
-    if qa_map.get("pdf_uri", None) is not None:
+    if (qa_map.get("pdf_uri", None) is not None) and (qa_map.get("pdf_uri", None) is not ""):
         pdf_download_url = qa_map["pdf_uri"]
         docx_download_url = qa_map["docx_uri"]
     else:
-        print(qa_id)
+        print("qa_id:", qa_id)
         answer = compile_answer(
             qa_map["answer"], qa_map["question"], msgspec.json.decode(qa_map["sources"])
         )

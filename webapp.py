@@ -12,6 +12,8 @@ import hashlib
 from langchain.schema import Document
 from gradio_log import Log
 from ulid import ULID
+import sys
+sys.settrace(None)
 
 load_dotenv()
 
@@ -542,13 +544,13 @@ footer {
                     int(answer["date_added"]), tz=datetime.UTC
                 )
             )
-            if "pdf_uri" in answer.keys():
+            if ("pdf_uri" in answer.keys()) and (answer.get("pdf_uri", None) != ""):
                 answer["pdf_uri"] = sanitize_url(answer["pdf_uri"])
             else:
                 # Generate PDF and DOCX first
                 answer["pdf_uri"], answer["docx_uri"] = render_qa_pdfs(qa_id)
                 answer["pdf_uri"] = sanitize_url(answer["pdf_uri"])
-            if "docx_uri" in answer.keys():
+            if ("docx_uri" in answer.keys()) and (answer.get("pdf_uri", None) != ""):
                 answer["docx_uri"] = sanitize_url(answer["docx_uri"])
             all_answers.append(answer)
 

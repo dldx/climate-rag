@@ -146,6 +146,10 @@ def main():
     elif args.get_source_doc is not None:
         query_source_documents(db, args.get_source_doc, fields=["source", "page_content"])
     else:
+        # If query_text is too short, return a message
+        if len(query_text) < 5:
+            pretty_print("Please provide a more complete question of at least 5 characters.")
+            return
         continue_after_interrupt = False
         user_happy_with_answer = False
         while user_happy_with_answer is False:
@@ -328,6 +332,9 @@ def run_query(
     happy_with_answer: Optional[bool] = False,
     continue_after_interrupt: Optional[bool] = False,
 ) -> Iterator[Tuple[str, GraphState]]:
+
+    if len(question) < 5:
+        return "error", {"error": "Please provide a more complete question."}
 
     # Run
     inputs = {
