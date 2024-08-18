@@ -2,12 +2,13 @@
 
 ## RAG pipeline to identify useful web pages and reports on the internet, scrape and ingest them to collect better energy and climate data
 
-Acknowledgements:
-* [Pixegami](https://github.com/pixegami/rag-tutorial-v2) for initial RAG workflow
-* [Greg Kamradt](https://www.youtube.com/watch?v=8OJC21T2SL4) for chunking strategies
+![RAG workflow](https://github.com/user-attachments/assets/009c16eb-43a9-45fa-ab5f-cc4ead9f0e26)
 
+[climate-rag-ui.webm](https://github.com/user-attachments/assets/1910dec8-ef9b-4a8a-9e9f-684745049365)
 
 ## Installation
+
+**Please note: this package is still under development. It has only been tested in a couple of settings so far!**
 
 Create a virtual environment and install the required packages using the following commands:
 
@@ -157,7 +158,7 @@ The RAG pipeline uses metadata to enhance document retrieval. You can manually a
 
 To enable automatic metadata extraction, use the `--add-additional-metadata` flag when running the RAG pipeline. This will use a large language model to extract metadata from the documents in the database.
 
-###  Advanced Options
+##  Advanced Options
 
 The RAG pipeline offers various configuration options. You can customize the behavior using the following flags:
 
@@ -175,6 +176,9 @@ For example, to run a query in Chinese with a maximum of 5 search queries, you w
 ```bash
 python query_data.py "给我一份关于越南煤电厂的清单" --language zh --max-search-queries 5
 ```
+## Acknowledgements:
+* [Pixegami](https://github.com/pixegami/rag-tutorial-v2) for initial RAG workflow
+* [Greg Kamradt](https://www.youtube.com/watch?v=8OJC21T2SL4) for chunking strategies
 
 ##  Contributing
 
