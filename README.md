@@ -11,7 +11,57 @@
 * Command-line tools and python API to enable easy automation
 * RAG process means LLM (almost) always cites the correct sources.
 
-![RAG workflow](https://github.com/user-attachments/assets/009c16eb-43a9-45fa-ab5f-cc4ead9f0e26)
+```mermaid
+graph LR
+    subgraph "RAG Application Workflow"
+        A[Improve Question] --> B[Formulate Query]
+        B --> C{Decide to Generate}
+        C -- Generate --> D[Retrieve from Database]
+        C -- No Generate --> E["Web Search"]
+        D --> F[Add Additional Metadata]
+        E --> H[Convert to Markdown]
+        H --> D
+        F --> I{Decide to Rerank}
+        I -- Rerank --> J[Rerank Documents]
+        I -- No Rerank --> K[Generate]
+        J --> K
+        K --> L[Ask User for Feedback]
+        L -- Web Search --> E
+        L -- Happy with Answer --> M[END]
+    end
+
+    subgraph "Web Search"
+        E --> N{Choose Search Engine}
+        N -- Language is Chinese --> P{Baidu}
+        N -- Language is not Chinese --> O{Google}
+        O --> E
+        P --> E
+    end
+
+    subgraph "Convert to Markdown"
+        H -->  Q[Choose Conversion Tool]
+        Q --> R{Firecrawl}
+        R -- Fail --> S{Jina.ai}
+        S -- Fail --> T{Browser Automation}
+        T -- Fail --> V{Gemini}
+        R --> H
+        S --> H
+        T --> H
+        V --> H
+        T -- Success --> W{Choose Additional Processing}
+        W --> X{Jina.ai}
+        W --> Y{Local Processing}
+        W --> Z{Gemini}
+        X --> H
+        Y --> H
+        Z --> H
+    end
+
+    subgraph "Retrieve from Database"
+        D --> G[Retrieve using multiple queries]
+        G --> D
+    end
+```
 
 [climate-rag-ui.webm](https://github.com/user-attachments/assets/1910dec8-ef9b-4a8a-9e9f-684745049365)
 
