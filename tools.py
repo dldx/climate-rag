@@ -1,6 +1,7 @@
 import hashlib
 import traceback
 import pandas as pd
+from redis import ResponseError
 from ulid import ULID
 import os
 import logging
@@ -372,7 +373,6 @@ def add_urls_to_db_chrome(urls: List[str], db, headless=True) -> List[Document]:
     return docs_to_return
 
 def delete_document_from_db(source_uri: str, db, r):
-    from redis import ResponseError
     # Delete document from redis
     existed = r.delete(f"climate-rag::source:{source_uri}") == 1
     if existed:
@@ -388,13 +388,41 @@ def delete_document_from_db(source_uri: str, db, r):
         print(f"Document not found in chroma db: {source_uri}")
 
 
+def get_sources_based_on_filter(rag_filter: str, r) -> List[str]:
+    """
+    Get all sources from redis based on a filter.
+
+    Args:
+        rag_filter: The filter to use.
+        r: The redis connection.
+
+    Returns:
+        List[str]: A list of source URIs.
+    """
+    # Get all sources from redis
+    import re
+    from redis.commands.search.query import Query
+    if bool(re.search(r"@.+:.+", rag_filter)):
+        # Get all sources from redis based on FT.SEARCH
+        try:
+            source_list = [doc.id.replace("climate-rag::source:", "") for doc in r.ft('idx:source').search(Query(rag_filter).no_content().paging(0, 10000)).docs]
+        except ResponseError:
+            source_list = []
+    else:
+        # Get all sources from redis based on key search
+        source_list = [
+                uri.replace("climate-rag::source:", "")
+                for uri in r.keys(f"climate-rag::source:{rag_filter}")
+            ]
+    return source_list
 
 def format_docs(docs):
-    return "\n\n".join(
+    formatted_docs = "\n\n".join(
         """
 Title: {title}
 Company: {company_name}
 Source: {source}
+Date published: {publishing_date}
 Content:
 {content}
 
@@ -402,6 +430,7 @@ Content:
 """.format(
             title=doc.metadata.get("title", "") if not pd.isna(doc.metadata.get("title")) else "",
             company_name=doc.metadata.get("company_name", "") if not pd.isna(doc.metadata.get("company_name")) else "",
+            publishing_date=doc.metadata.get("publishing_date", "") if not pd.isna(doc.metadata.get("publishing_date")) else "",
             content=doc.page_content,
             source=(
                 clean_urls([doc.metadata["source"]], os.environ.get("STATIC_PATH", ""))[
@@ -413,6 +442,8 @@ Content:
         )
         for doc in docs
     )
+
+    return formatted_docs
 
 
 def get_vector_store():
@@ -710,6 +741,9 @@ def get_source_document_extra_metadata(
     field_map = dict(zip(metadata_fields, r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields)))
     # Filter out None values
     dict_to_return = {k: v for k, v in field_map.items() if v is not None}
+    # Convert publishing_date to isoformat
+    if "publishing_date" in dict_to_return.keys():
+        dict_to_return["publishing_date"] = datetime.datetime.fromtimestamp(int(dict_to_return["publishing_date"]), tz=datetime.UTC).isoformat()
 
 
     return dict_to_return

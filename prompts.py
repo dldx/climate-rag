@@ -159,6 +159,7 @@ In your comprehensive response, you MUST do the following:
 1. Only use the research provided to you to generate the response.
 2. Directly provide the source of the information in the response.
 3. Ensure you use the most relevant information from the research to answer the query.
+4. Pay special attention to any dates or entities referenced in the query and the research.
 
 If you don't know the answer, just say that you don't know.
 

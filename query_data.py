@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 import pandas as pd
 from agents import GraphState
 from helpers import clean_urls
-from tools import get_vector_store
+from tools import get_sources_based_on_filter, get_vector_store
 import langcodes
 from cache import r
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
+# os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
 
 load_dotenv()  # take environment variables from .env.
@@ -246,7 +246,7 @@ def query_source_documents(
             "title",
             "company_name",
         ]
-    keys = r.keys("climate-rag::source:" + source_uri)
+    keys = ("climate-rag::source:" + pd.Series(get_sources_based_on_filter(source_uri, r))).tolist()
     if len(keys) == 0:
         df = pd.DataFrame(columns=fields)
     else:

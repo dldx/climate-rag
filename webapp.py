@@ -1,4 +1,5 @@
 import logging
+import re
 import urllib.parse
 from pathvalidate import sanitize_filename
 import humanize
@@ -499,13 +500,17 @@ footer {
         if search_query is None:
             search_query = ""
 
+        if bool(re.search(r"@.+:.+", search_query)) is False:
+            # Add asterisks to search query if not a ft.search-style query
+            search_query = f"*{search_query}*"
+
         if len(search_query) < 2:
             search_results = query_source_documents(
                 db, "", print_output=False, fields=["source"]
             )[["source"]]
         else:
             search_results = query_source_documents(
-                db, f"*{search_query}*", print_output=False, fields=["source"]
+                db, search_query, print_output=False, fields=["source"]
             )[["source"]].iloc[:30]
             search_results["source"] = clean_urls(search_results["source"].tolist())
             # Remove static path to simplify display
@@ -516,6 +521,7 @@ footer {
                     else x
                 )
             )
+            print(search_results)
 
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 

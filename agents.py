@@ -10,12 +10,13 @@ from langchain_core.output_parsers import StrOutputParser
 
 from langchain.schema import Document
 from langchain.prompts import PromptTemplate, ChatPromptTemplate
-from llms import get_chatbot
+from llms import get_chatbot, get_max_token_length
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 
 from tools import (
+    get_sources_based_on_filter,
     web_search_tool,
     get_vector_store,
     add_urls_to_db,
@@ -31,10 +32,6 @@ from dotenv import load_dotenv
 from cache import r
 
 load_dotenv()
-
-MAX_TOKEN_LENGTH = 24_000
-
-
 
 
 def get_current_utc_datetime():
@@ -213,10 +210,7 @@ def retrieve(state: GraphState) -> GraphState:
     if rag_filter == "":
         rag_filter = None
     if rag_filter is not None:
-        source_list = [
-            uri.replace("climate-rag::source:", "")
-            for uri in r.keys(f"climate-rag::source:{rag_filter}")
-        ]
+        source_list = get_sources_based_on_filter(rag_filter, r)
         if len(source_list) == 0:
             print("No source documents found in database")
             return {"documents": [], "search_prompts": state["search_prompts"]}
@@ -250,7 +244,7 @@ from functools import partial
 def get_metadata_for_source(r, use_llm: bool, source: str) -> dict:
     try:
         metadata = get_source_document_extra_metadata(
-            r, source, metadata_fields=["title", "company_name"], use_llm=use_llm
+            r, source, metadata_fields=["title", "company_name", "publishing_date"], use_llm=use_llm
         )
     except:
         # If metadata not found, continue
@@ -283,7 +277,7 @@ def add_additional_metadata(state: GraphState) -> GraphState:
     source_metadatas = list(map(func, unique_sources))
 
     # Now add metadata to documents
-    source_metadatas_df = pd.DataFrame(source_metadatas).reindex(["source", "title", "company_name"], axis=1).set_index("source")
+    source_metadatas_df = pd.DataFrame(source_metadatas).reindex(["source", "title", "company_name", "publishing_date"], axis=1).set_index("source")
     for doc in documents:
         doc.metadata = {
             **doc.metadata,
@@ -516,6 +510,7 @@ def crawl_or_not(doc: Document, question: str):
     """
 
     llm = get_chatbot(llm="gpt-4o-mini")
+    MAX_TOKEN_LENGTH = get_max_token_length("gpt-4o-mini")
 
     class CrawlDecision(BaseModel):
         crawl: bool = Field(description="Whether the web page should be crawled")
@@ -726,6 +721,9 @@ def generate(state: GraphState) -> GraphState:
 
     print("---GENERATE---")
     documents = state["documents"]
+    llm = get_chatbot(state["llm"])
+    MAX_TOKEN_LENGTH = get_max_token_length(state["llm"])
+
 
     if len(documents) == 0:
         state["generation"] = (
@@ -743,16 +741,17 @@ def generate(state: GraphState) -> GraphState:
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", generate_prompt),
-            ("human", "Question: {question}"),
-            ("human", "Context:\n\n{context}"),
-            (
-                "human",
-                "A reminder of the question you should answer: {question}\n\nRemember to return the answer in English only.",
+            ("human", """Question: {question}
+
+Context:
+{context}
+
+A reminder of the question you should answer: {question}
+
+Remember to return the answer in English only.""",
             ),
         ]
     )
-
-    llm = get_chatbot(state["llm"])
 
     # LLM Chain
     rag_chain = prompt | llm | StrOutputParser()
