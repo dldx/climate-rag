@@ -102,7 +102,9 @@ def climate_chat(
     if rag_filter == "":
         rag_filter = None
     else:
-        rag_filter = f"*{rag_filter}*"
+        if re.search(r"@.+:.+", rag_filter) is False:
+            # Add asterisks to search query if not a ft.search-style query
+            rag_filter = f"*{rag_filter}*"
 
     for key, value in run_query(
         message,
@@ -521,7 +523,6 @@ footer {
                     else x
                 )
             )
-            print(search_results)
 
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
@@ -592,6 +593,9 @@ footer {
 
         if search_query is None:
             search_query = ""
+        if bool(re.search(r"@.+:.+", search_query)) is False:
+            # Add asterisks to search query if not a ft.search-style query
+            search_query = f"*{search_query}*"
 
         if len(search_query) < 3:
             search_results = query_source_documents(
@@ -619,7 +623,7 @@ footer {
         else:
             search_results = query_source_documents(
                 db,
-                f"*{search_query}*",
+                search_query,
                 print_output=False,
                 fields=[
                     "title",

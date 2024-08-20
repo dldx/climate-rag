@@ -310,7 +310,7 @@ Contents: {doc.page_content}
             for doc in documents
         ]
 
-    rerank_api = "jina"
+    rerank_api = "cohere"
 
     if rerank_api == "jina":
         from langchain_community.document_compressors import JinaRerank

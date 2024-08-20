@@ -175,7 +175,7 @@ def render_qa_pdfs(qa_id):
     from helpers import md_to_pdf, pdf_to_docx
     filename = sanitize_filename(qa_id)
     qa_map = r.hgetall(f"climate-rag::answer:{qa_id}")
-    if len(qa_map["question"]) == 0:
+    if len(qa_map.get("question", "")) == 0:
         qa_map["question"] = "No question provided"
     # Check if PDF is already in redis cache
     if (qa_map.get("pdf_uri", None) is not None) and (qa_map.get("pdf_uri", None) is not ""):
