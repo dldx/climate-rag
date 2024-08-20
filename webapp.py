@@ -1,6 +1,7 @@
 import logging
 import re
 import urllib.parse
+import pandas as pd
 from pathvalidate import sanitize_filename
 import humanize
 import msgspec
@@ -499,17 +500,15 @@ footer {
     def filter_documents(search_query):
         from query_data import query_source_documents
 
-        if search_query is None:
+        if (search_query is None) or (search_query == ""):
             search_query = ""
-
-        if bool(re.search(r"@.+:.+", search_query)) is False:
-            # Add asterisks to search query if not a ft.search-style query
-            search_query = f"*{search_query}*"
+        else:
+            if bool(re.search(r"@.+:.+", search_query)) is False:
+                # Add asterisks to search query if not a ft.search-style query
+                search_query = f"*{search_query}*"
 
         if len(search_query) < 2:
-            search_results = query_source_documents(
-                db, "", print_output=False, fields=["source"]
-            )[["source"]]
+            search_results = pd.DataFrame(columns=["source"])
         else:
             search_results = query_source_documents(
                 db, search_query, print_output=False, fields=["source"]
