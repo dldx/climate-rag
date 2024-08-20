@@ -39,7 +39,7 @@ def get_chatbot(
         from langchain_google_vertexai import ChatVertexAI
         # The GOOGLE_PROJECT_ID environment variable must be set
         if "GOOGLE_PROJECT_ID" not in os.environ or not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-            raise ValueError("`GOOGLE_PROJECT_ID` is needed to call Gemini but it is not set in .env. See https://cloud.google.com/docs/authentication/provide-credentials-adc#how-to for details")
+            raise ValueError("`GOOGLE_PROJECT_ID` and `GOOGLE_APPLICATION_CREDENTIALS` are both needed to call Gemini but are not set in .env. See https://cloud.google.com/docs/authentication/provide-credentials-adc#how-to for details")
 
 
         return ChatVertexAI(
