@@ -171,6 +171,44 @@ def compile_answer(generation: str, initial_question: str, sources: List[str | N
 
     return answer
 
+def get_previous_queries(r, query_filter: str = "*", limit: int = 30) -> pd.DataFrame:
+    import humanize
+    import datetime
+    from redis.commands.search.query import Query
+    from redis.exceptions import ResponseError
+    def humanize_unix_date(date):
+        return humanize.naturaltime(
+                    datetime.datetime.now(datetime.UTC)
+                    - datetime.datetime.fromtimestamp(
+                        int(date), tz=datetime.UTC
+                    )
+                )
+    try:
+        previous_queries_df = (
+            pd.DataFrame.from_records(
+                [
+                    doc.__dict__
+                    for doc in r.ft("idx:answer")
+                    .search(
+                        Query(query_filter).return_fields(
+                            "date_added", "question", "answer", "pdf_uri", "docx_uri"
+                        ).sort_by("date_added", asc=False).paging(0, limit)
+                    )
+                    .docs
+                ]
+            )
+            .assign(
+                qa_id=lambda df: df.id.apply(lambda x: x.split(":", 3)[-1]),
+                date_added=lambda df: df.date_added.astype(int),
+                date_added_ts=lambda df: df.date_added.apply(lambda x: humanize_unix_date(x))
+            )
+            .drop(columns=["payload", "id"])
+        )
+    except (ResponseError, AttributeError):
+        previous_queries_df = pd.DataFrame(columns=["qa_id", "date_added", "date_added_ts", "question", "answer", "pdf_uri", "docx_uri"])
+
+    return previous_queries_df
+
 def render_qa_pdfs(qa_id):
     from helpers import md_to_pdf, pdf_to_docx
     filename = sanitize_filename(qa_id)
@@ -178,7 +216,7 @@ def render_qa_pdfs(qa_id):
     if len(qa_map.get("question", "")) == 0:
         qa_map["question"] = "No question provided"
     # Check if PDF is already in redis cache
-    if (qa_map.get("pdf_uri", None) is not None) and (qa_map.get("pdf_uri", None) is not ""):
+    if (qa_map.get("pdf_uri", None) is not None) and (qa_map.get("pdf_uri", None) != ""):
         pdf_download_url = qa_map["pdf_uri"]
         docx_download_url = qa_map["docx_uri"]
     else:

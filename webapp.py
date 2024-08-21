@@ -312,6 +312,10 @@ footer {
         "Previous queries", elem_classes=["h-full", "scroll-y"]
     ) as previous_queries_tab:
         with gr.Row():
+            query_history_search = gr.Textbox(
+                placeholder="Search previous queries", show_label=False
+            )
+        with gr.Row():
             query_history_display = gr.Dataset(
                 components=[
                     gr.Textbox(visible=False),
@@ -533,41 +537,27 @@ footer {
     )
 
     ## Tab 2: Query history
-    def get_query_history(evt: gr.EventData):
+    def get_query_history(query_filter):
         import pandas as pd
         import msgspec
         import datetime
+        from helpers import get_previous_queries
+        print(query_filter)
 
-        all_answers = []
-        for key in r.keys("*:answer:*"):
-            answer = r.hgetall(key)
-            qa_id = key.split(":", 3)[-1]
-            answer["sources"] = msgspec.json.decode(answer["sources"])
-            answer["doc_ids"] = msgspec.json.decode(answer["doc_ids"])
-            answer["date_added_ts"] = humanize.naturaltime(
-                datetime.datetime.now(datetime.UTC)
-                - datetime.datetime.fromtimestamp(
-                    int(answer["date_added"]), tz=datetime.UTC
-                )
-            )
-            if ("pdf_uri" in answer.keys()) and (answer.get("pdf_uri", None) != ""):
-                answer["pdf_uri"] = sanitize_url(answer["pdf_uri"])
-            else:
-                # Generate PDF and DOCX first
-                answer["pdf_uri"], answer["docx_uri"] = render_qa_pdfs(qa_id)
-                answer["pdf_uri"] = sanitize_url(answer["pdf_uri"])
-            if ("docx_uri" in answer.keys()) and (answer.get("pdf_uri", None) != ""):
-                answer["docx_uri"] = sanitize_url(answer["docx_uri"])
-            all_answers.append(answer)
+        if (query_filter is None) or (query_filter == ""):
+            query_filter = "*"
+        print(query_filter)
 
-        df = (
-            pd.DataFrame.from_records(all_answers)
-            .sort_values("date_added", ascending=False)
-            .reindex(
-                ["date_added_ts", "question", "answer", "pdf_uri", "docx_uri"], axis=1
-            )
-            # .iloc[:20]
-        )
+        # Get dataframe of previous queries
+        df = get_previous_queries(r, query_filter=query_filter, limit=100).set_index("qa_id")[["date_added_ts", "question", "answer", "pdf_uri", "docx_uri"]]
+        # Deal with missing PDF and DOCX URIs
+        missing_pdfs = df.loc[lambda df: df.isnull().any(axis=1)].index.tolist()
+        for qa_id in missing_pdfs:
+            df.loc[qa_id, "pdf_uri"], df.loc[qa_id, "docx_uri"] = render_qa_pdfs(qa_id)
+        # Sanitize URLs
+        df.pdf_uri = df.pdf_uri.apply(sanitize_url)
+        df.docx_uri = df.docx_uri.apply(sanitize_url)
+
         df.pdf_uri = (
             "<a target='_blank' href='"
             + df.pdf_uri.astype(str).fillna("")
@@ -582,7 +572,13 @@ footer {
         return gr.Dataset(samples=df.to_numpy().tolist())
 
     previous_queries_tab.select(
-        get_query_history, outputs=[query_history_display], queue=False
+        get_query_history, inputs=[query_history_search], outputs=[query_history_display], queue=False
+    )
+    query_history_search.change(
+        fn=lambda x: get_query_history(x),
+        inputs=[query_history_search],
+        outputs=[query_history_display],
+        queue=False,
     )
 
     ## Tab 3: Documents
@@ -677,11 +673,12 @@ footer {
         outputs=[selected_source],
         queue=False,
     )
-    # .then(fn=lambda: None, inputs=None, outputs=[url_input], queue=False).then(
-    #     search_documents,
-    #     [search_input],
-    #     [search_results_display],
-    # )
+    url_input.submit(
+        fn=add_document,
+        inputs=[url_input],
+        outputs=[selected_source],
+        queue=False,
+    )
 
     # Upload new document
     from tools import upload_documents
