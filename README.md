@@ -8,7 +8,7 @@
 * Supports multiple languages and will auto-translate into other languages to run optimal search
 * Supports multiple search engines (eg. Baidu is better than Google for Chinese documents)
 * Extracts information from websites, PDFs (including scanned PDFs!), local text and other sources...
-* Modular design based on Langchain and Langraph supports multiple industry-standard LLMs including OpenAI GPT-4o, Google Gemini, Anthropic Claude Meta Llama 3.1, Ollama (local LLMs)
+* Modular design based on Langchain and Langraph supports multiple industry-standard LLMs including OpenAI GPT-4o, Google Gemini, Anthropic Claude, Meta Llama 3.1, Ollama (local LLMs)
 * User-friendly proof of concept UI
 * Command-line tools and python API to enable easy automation
 * RAG process means LLM (almost) always cites the correct sources.

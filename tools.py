@@ -27,7 +27,13 @@ from langchain_core.documents import Document
 import datetime
 
 from cache import r
-from helpers import clean_up_metadata_object, clean_urls, modify_document_source_urls, sanitize_url, upload_file
+from helpers import (
+    clean_up_metadata_object,
+    clean_urls,
+    modify_document_source_urls,
+    sanitize_url,
+    upload_file,
+)
 
 from pdf_download import download_urls_in_headed_chrome
 
@@ -55,6 +61,7 @@ error_messages = {
     "The connection to the origin web server was made, but the origin web server timed out before responding. The likely cause is an overloaded background task, database or application, stressing the resources on your web server.": "Cloudflare timeout error",
 }
 
+
 def store_error_in_redis(url: str, error: str, source: str):
     """
     Store an error in Redis for later analysis.
@@ -79,6 +86,7 @@ def store_error_in_redis(url: str, error: str, source: str):
     print(f"['climate-rag::error:{error_hash}'] Error loading {url}: {error}  ")
 
     return error_hash
+
 
 def check_page_content_for_errors(page_content: str):
     for error, return_message in error_messages.items():
@@ -114,7 +122,11 @@ def add_urls_to_db(
             if url.lower().endswith(".md"):
                 # Can directly download markdown without any processing
                 docs += add_urls_to_db_html([url], db)
-            elif url.lower().endswith(".xls") or url.lower().endswith(".xlsx") or url.lower().endswith(".zip"):
+            elif (
+                url.lower().endswith(".xls")
+                or url.lower().endswith(".xlsx")
+                or url.lower().endswith(".zip")
+            ):
                 # Cannot load excel files right now
                 raise Exception(f"Cannot load Excel files: {url}")
             else:
@@ -135,7 +147,9 @@ def add_urls_to_db(
                         docs += gemini_docs
 
                     except Exception as e:
-                        error_hash = store_error_in_redis(url, str(traceback.format_exc()), "headed_chrome")
+                        error_hash = store_error_in_redis(
+                            url, str(traceback.format_exc()), "headed_chrome"
+                        )
                         downloaded_urls = []
 
                 else:
@@ -144,7 +158,14 @@ def add_urls_to_db(
                             ["https://r.jina.ai/" + url], db
                         )
                         # Check if the URL has been successfully processed
-                        if url in list(map(lambda x: x.metadata["source"].replace("https://r.jina.ai/", ""), jina_docs)):
+                        if url in list(
+                            map(
+                                lambda x: x.metadata["source"].replace(
+                                    "https://r.jina.ai/", ""
+                                ),
+                                jina_docs,
+                            )
+                        ):
                             docs += jina_docs
                         else:
                             # Otherwise, download file using headed chrome
@@ -161,7 +182,10 @@ def add_urls_to_db(
                                     if len(uploaded_docs) > 0:
                                         # Change the source to the original URL
                                         modify_document_source_urls(
-                                            uploaded_docs[0].metadata["source"], url, db, r
+                                            uploaded_docs[0].metadata["source"],
+                                            url,
+                                            db,
+                                            r,
                                         )
                                     else:
                                         # Try using Gemini to process the PDF
@@ -173,7 +197,9 @@ def add_urls_to_db(
                                         f"Failed to download file via Headed Chrome: {url}"
                                     )
                             except Exception as e:
-                                error_hash = store_error_in_redis(url, str(traceback.format_exc()), "headed_chrome")
+                                error_hash = store_error_in_redis(
+                                    url, str(traceback.format_exc()), "headed_chrome"
+                                )
                                 uploaded_docs = []
                             docs += uploaded_docs
                     else:
@@ -194,7 +220,7 @@ def add_urls_to_db(
             print("Already in database: ", url)
     # Fetch additional metadata
     # There should only be one url in this but just in case
-    for i in set(map(lambda x: x.metadata["source"], docs) ):
+    for i in set(map(lambda x: x.metadata["source"], docs)):
         print("Fetching additional metadata for:", i)
         get_source_document_extra_metadata(r, i)
     return docs
@@ -260,7 +286,10 @@ def add_urls_to_db_html(urls: List[str], db) -> List[Document]:
             print("Already in database: ", url)
     return docs
 
-def add_document_to_db_via_gemini(doc_uri: os.PathLike | str, original_uri: str, db) -> List[Document]:
+
+def add_document_to_db_via_gemini(
+    doc_uri: os.PathLike | str, original_uri: str, db
+) -> List[Document]:
     from process_pdf_via_gemini import process_pdf_via_gemini
 
     docs = []
@@ -274,7 +303,7 @@ def add_document_to_db_via_gemini(doc_uri: os.PathLike | str, original_uri: str,
                 metadata={
                     "source": original_uri,
                     "date_added": datetime.datetime.now().isoformat(),
-                    "loader": "gemini"
+                    "loader": "gemini",
                 },
                 page_content=pdf_contents,
             )
@@ -284,8 +313,11 @@ def add_document_to_db_via_gemini(doc_uri: os.PathLike | str, original_uri: str,
             else:
                 chunks = split_documents(filter_complex_metadata([doc]))
                 add_to_chroma(db, chunks)
-                doc.metadata = {**clean_up_metadata_object(pdf_metadata), **doc.metadata}
-                doc.metadata["fetched_additional_metadata"] = 'true'
+                doc.metadata = {
+                    **clean_up_metadata_object(pdf_metadata),
+                    **doc.metadata,
+                }
+                doc.metadata["fetched_additional_metadata"] = "true"
                 add_doc_to_redis(r, doc)
                 docs += [doc]
         except Exception as e:
@@ -294,6 +326,7 @@ def add_document_to_db_via_gemini(doc_uri: os.PathLike | str, original_uri: str,
         print("Already in database: ", original_uri)
 
     return docs
+
 
 def add_urls_to_db_firecrawl(urls: List[str], db):
 
@@ -390,6 +423,7 @@ def add_urls_to_db_chrome(urls: List[str], db, headless=True) -> List[Document]:
 
     return docs_to_return
 
+
 def delete_document_from_db(source_uri: str, db, r):
     # Delete document from redis
     existed = r.delete(f"climate-rag::source:{source_uri}") == 1
@@ -420,21 +454,23 @@ def get_sources_based_on_filter(rag_filter: str, r) -> List[str]:
     # Get all sources from redis
     import re
     from redis.commands.search.query import Query
+
     print(f"Getting sources based on filter: {rag_filter}")
-    if bool(re.search(r"@.+:.+", rag_filter)):
-        # Get all sources from redis based on FT.SEARCH
-        try:
-            source_list = [doc.id.replace("climate-rag::source:", "") for doc in r.ft('idx:source').search(Query(rag_filter).no_content().paging(0, 10000)).docs]
-        except ResponseError:
-            print("Redis error:", str(traceback.format_exc()))
-            source_list = []
-    else:
-        # Get all sources from redis based on key search
+    if bool(re.search(r"@.+:.+", rag_filter)) is False:
+        rag_filter = f"@source:{rag_filter}"
+    # Get all sources from redis based on FT.SEARCH
+    try:
         source_list = [
-                uri.replace("climate-rag::source:", "")
-                for uri in r.keys(f"climate-rag::source:{rag_filter}")
-            ]
+            doc.id.replace("climate-rag::source:", "")
+            for doc in r.ft("idx:source")
+            .search(Query(rag_filter).no_content().paging(0, 10000).timeout(2000))
+            .docs
+        ]
+    except ResponseError:
+        print("Redis error:", str(traceback.format_exc()))
+        source_list = []
     return source_list
+
 
 def format_docs(docs):
     formatted_docs = "\n\n".join(
@@ -448,9 +484,21 @@ Content:
 
 ---
 """.format(
-            title=doc.metadata.get("title", "") if not pd.isna(doc.metadata.get("title")) else "",
-            company_name=doc.metadata.get("company_name", "") if not pd.isna(doc.metadata.get("company_name")) else "",
-            publishing_date=doc.metadata.get("publishing_date", "") if not pd.isna(doc.metadata.get("publishing_date")) else "",
+            title=(
+                doc.metadata.get("title", "")
+                if not pd.isna(doc.metadata.get("title"))
+                else ""
+            ),
+            company_name=(
+                doc.metadata.get("company_name", "")
+                if not pd.isna(doc.metadata.get("company_name"))
+                else ""
+            ),
+            publishing_date=(
+                doc.metadata.get("publishing_date", "")
+                if not pd.isna(doc.metadata.get("publishing_date"))
+                else ""
+            ),
             content=doc.page_content,
             source=(
                 clean_urls([doc.metadata["source"]], os.environ.get("STATIC_PATH", ""))[
@@ -548,7 +596,9 @@ def add_to_chroma(db: Chroma, chunks: list[Document]):
     chunks_with_ids = calculate_chunk_ids(chunks)
 
     # Only add documents that don't exist in the DB.
-    document_not_in_db = len(db.get(ids=[chunk.metadata["id"] for chunk in chunks_with_ids])["ids"]) == 0
+    document_not_in_db = (
+        len(db.get(ids=[chunk.metadata["id"] for chunk in chunks_with_ids])["ids"]) == 0
+    )
 
     if document_not_in_db:
         print(f"👉 Adding new documents: {len(chunks_with_ids)}")
@@ -678,7 +728,6 @@ def upload_documents(files: str | List[str], db) -> List[Document]:
     return docs
 
 
-
 def extract_metadata_from_source_document(source_text) -> SourceMetadata:
     from llms import get_chatbot
     from prompts import metadata_extractor_prompt
@@ -714,12 +763,13 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
 def get_source_document_extra_metadata(
     r,
     source_uri,
-    metadata_fields: List[Literal["title", "company_name", "publishing_date", "source"]] = [
-        "title"
-    ],
+    metadata_fields: List[
+        Literal["title", "company_name", "publishing_date", "source"]
+    ] = ["title"],
     use_llm: bool = True,
 ) -> Dict[str, Any]:
     from langchain_core.exceptions import OutputParserException
+
     """Get generated metadata for a source document from redis. If the metadata is not available, generate it first.
 
     Args:
@@ -731,11 +781,19 @@ def get_source_document_extra_metadata(
     """
     # Check if metadata is available in redis
     dict_to_return = {}
-    field_map = dict(zip(metadata_fields, r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields)))
+    field_map = dict(
+        zip(
+            metadata_fields,
+            r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields),
+        )
+    )
     for field_key, field_value in field_map.items():
         if field_value is not None:
             pass
-        elif use_llm and (r.hget(f"climate-rag::source:{source_uri}", "fetched_additional_metadata") != "true"):
+        elif use_llm and (
+            r.hget(f"climate-rag::source:{source_uri}", "fetched_additional_metadata")
+            != "true"
+        ):
             # Generate metadata from source document
             # Try to get the raw_html or page_content from redis
             source_text = r.hget(f"climate-rag::source:{source_uri}", "raw_html")
@@ -751,19 +809,24 @@ def get_source_document_extra_metadata(
             except OutputParserException:
                 return {}
 
-
             # Save metadata to redis
             page_metadata_map = clean_up_metadata_object(page_metadata)
             page_metadata_map["fetched_additional_metadata"] = "true"
             r.hset(f"climate-rag::source:{source_uri}", mapping=page_metadata_map)
 
     # Return metadata fields from redis
-    field_map = dict(zip(metadata_fields, r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields)))
+    field_map = dict(
+        zip(
+            metadata_fields,
+            r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields),
+        )
+    )
     # Filter out None values
     dict_to_return = {k: v for k, v in field_map.items() if v is not None}
     # Convert publishing_date to isoformat
     if "publishing_date" in dict_to_return.keys():
-        dict_to_return["publishing_date"] = datetime.datetime.fromtimestamp(int(dict_to_return["publishing_date"]), tz=datetime.UTC).isoformat()
-
+        dict_to_return["publishing_date"] = datetime.datetime.fromtimestamp(
+            int(dict_to_return["publishing_date"]), tz=datetime.UTC
+        ).isoformat()
 
     return dict_to_return

@@ -103,9 +103,9 @@ def climate_chat(
     if rag_filter == "":
         rag_filter = None
     else:
-        if re.search(r"@.+:.+", rag_filter) is False:
-            # Add asterisks to search query if not a ft.search-style query
-            rag_filter = f"*{rag_filter}*"
+        if bool(re.search(r"@.+:.+", rag_filter)) is False:
+            # Turn it into a valid filter
+            rag_filter = f"@source:*{rag_filter}*"
 
     for key, value in run_query(
         message,
@@ -510,28 +510,26 @@ footer {
     def filter_documents(search_query):
         from query_data import query_source_documents
 
-        if (search_query is None) or (search_query == ""):
+        if (search_query is None):
             search_query = ""
-        else:
-            if bool(re.search(r"@.+:.+", search_query)) is False:
-                # Add asterisks to search query if not a ft.search-style query
-                search_query = f"*{search_query}*"
-
         if len(search_query) < 2:
-            search_results = pd.DataFrame(columns=["source"])
-        else:
-            search_results = query_source_documents(
-                db, search_query, print_output=False, fields=["source"]
-            )[["source"]].iloc[:30]
-            search_results["source"] = clean_urls(search_results["source"].tolist())
-            # Remove static path to simplify display
-            search_results["source"] = search_results["source"].apply(
-                lambda x: (
-                    ("🗎 " + x.split("/")[-1])
-                    if os.environ.get("STATIC_PATH", "") in str(x)
-                    else x
-                )
+            return gr.Dataset(samples=[])
+        if bool(re.search(r"@.+:.+", search_query)) is False:
+            # Turn into a search query if not a ft.search-style query
+            search_query = f"@source:*{search_query}*"
+
+        search_results = query_source_documents(
+            db, search_query, print_output=False, fields=["source"]
+        )[["source"]].iloc[:30]
+        search_results["source"] = clean_urls(search_results["source"].tolist())
+        # Remove static path to simplify display
+        search_results["source"] = search_results["source"].apply(
+            lambda x: (
+                ("🗎 " + x.split("/")[-1])
+                if os.environ.get("STATIC_PATH", "") in str(x)
+                else x
             )
+        )
 
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
@@ -592,54 +590,32 @@ footer {
 
         if search_query is None:
             search_query = ""
+        if len(search_query) < 2:
+            return gr.Dataset(samples=[])
         if bool(re.search(r"@.+:.+", search_query)) is False:
             # Add asterisks to search query if not a ft.search-style query
-            search_query = f"*{search_query}*"
+            search_query = f"@source:*{search_query}*"
 
-        if len(search_query) < 3:
-            search_results = query_source_documents(
-                db,
-                "",
-                print_output=False,
-                fields=[
-                    "title",
-                    "company_name",
-                    "source",
-                    "date_added",
-                    "page_length",
-                    "page_content",
-                ],
-            )[
-                [
-                    "title",
-                    "company_name",
-                    "source",
-                    "date_added",
-                    "page_length",
-                    "page_content",
-                ]
+        search_results = query_source_documents(
+            db,
+            search_query,
+            print_output=False,
+            fields=[
+                "title",
+                "company_name",
+                "source",
+                "date_added",
+                "page_length",
+            ],
+        )[
+            [
+                "title",
+                "company_name",
+                "source",
+                "date_added",
+                "page_length",
             ]
-        else:
-            search_results = query_source_documents(
-                db,
-                search_query,
-                print_output=False,
-                fields=[
-                    "title",
-                    "company_name",
-                    "source",
-                    "date_added",
-                    "page_length",
-                ],
-            )[
-                [
-                    "title",
-                    "company_name",
-                    "source",
-                    "date_added",
-                    "page_length",
-                ]
-            ]
+        ]
         return gr.Dataset(samples=search_results.to_numpy().tolist())
 
     search_input.change(
