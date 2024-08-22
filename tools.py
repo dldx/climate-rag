@@ -99,7 +99,7 @@ def check_page_content_for_errors(page_content: str):
 
 
 def add_urls_to_db(
-    urls: List[str], db: Chroma, use_firecrawl: bool = False
+    urls: List[str], db: Chroma, use_firecrawl: bool = False, use_gemini: bool = False
 ) -> List[Document]:
     """Add a list of URLs to the database.
 
@@ -120,6 +120,24 @@ def add_urls_to_db(
             else:
                 if use_firecrawl:
                     docs += add_urls_to_db_firecrawl([url], db)
+                elif use_gemini:
+                    # Use Gemini to process the PDF
+                    # download file using headed chrome
+                    temp_dir = tempfile.TemporaryDirectory()
+                    try:
+                        downloaded_urls = download_urls_in_headed_chrome(
+                            urls=[url], download_dir=temp_dir.name
+                        )
+                        # Try using Gemini to process the PDF
+                        gemini_docs = add_document_to_db_via_gemini(
+                            downloaded_urls[0]["local_path"], url, db
+                        )
+                        docs += gemini_docs
+
+                    except Exception as e:
+                        error_hash = store_error_in_redis(url, str(traceback.format_exc()), "headed_chrome")
+                        downloaded_urls = []
+
                 else:
                     if "pdf" in url:
                         jina_docs = add_urls_to_db_html(
@@ -402,11 +420,13 @@ def get_sources_based_on_filter(rag_filter: str, r) -> List[str]:
     # Get all sources from redis
     import re
     from redis.commands.search.query import Query
+    print(f"Getting sources based on filter: {rag_filter}")
     if bool(re.search(r"@.+:.+", rag_filter)):
         # Get all sources from redis based on FT.SEARCH
         try:
             source_list = [doc.id.replace("climate-rag::source:", "") for doc in r.ft('idx:source').search(Query(rag_filter).no_content().paging(0, 10000)).docs]
         except ResponseError:
+            print("Redis error:" str(traceback.format_exc()))
             source_list = []
     else:
         # Get all sources from redis based on key search

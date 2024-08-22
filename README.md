@@ -1,6 +1,8 @@
-# Climate RAG
+<div align="center">
+<img src="./static/logo.svg" alt="Climate RAG logo" width=400/>
+</div>
 
-## Retrieval augmented generation pipeline to identify useful web pages and reports on the internet, scrape and ingest them to collect better energy and climate data
+# **Climate RAG:** Retrieval augmented generation pipeline to identify, scrape and ingest web documents to answer climate-related queries
 
 ## Features
 * Supports multiple languages and will auto-translate into other languages to run optimal search

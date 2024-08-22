@@ -42,6 +42,7 @@ if __name__ == "__main__":
     if len(results) > 0:
         print(f"Found {len(results)} source documents with page_length less than 1000. Adding to deletion queue.")
         all_errors.extend(results)
+    breakpoint()
 
     for error in all_errors:
         delete_document_from_db(error.source, db, r)
