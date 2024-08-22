@@ -426,7 +426,7 @@ def get_sources_based_on_filter(rag_filter: str, r) -> List[str]:
         try:
             source_list = [doc.id.replace("climate-rag::source:", "") for doc in r.ft('idx:source').search(Query(rag_filter).no_content().paging(0, 10000)).docs]
         except ResponseError:
-            print("Redis error:" str(traceback.format_exc()))
+            print("Redis error:", str(traceback.format_exc()))
             source_list = []
     else:
         # Get all sources from redis based on key search
