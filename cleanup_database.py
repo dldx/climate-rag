@@ -23,7 +23,7 @@ if __name__ == "__main__":
                 .dialect(2)
                 .return_fields("source")
                 .paging(0, 10000)
-                .timeout(2000)
+                .timeout(5000)
             )
             .docs
         )
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     results = (
         r.ft("idx:source")
         .search(Query("@page_length:[0 600]").dialect(2).return_fields("source")
-                .paging(0, 10000).timeout(2000)).docs
+                .paging(0, 10000).timeout(5000)).docs
     )
     if len(results) > 0:
         print(f"Found {len(results)} source documents with page_length less than 1000. Adding to deletion queue.")
