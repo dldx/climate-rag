@@ -725,23 +725,23 @@ def generate(state: GraphState) -> GraphState:
     MAX_TOKEN_LENGTH = get_max_token_length(state["llm"])
 
 
+    # If there are no documents, save a message instead
     if len(documents) == 0:
-        state["generation"] = (
+        generation = (
             """No relevant documents found to generate answer from!"""
             + (" Check your RAG filters are correct!" if state["rag_filter"] else "")
         )
-        return state
+    else:
+        # Get length of document tokens, and filter so that total tokens is less than 30,000
+        documents = np.array(documents)[
+            np.array([len(enc.encode(doc.page_content)) for doc in documents]).cumsum()
+            < MAX_TOKEN_LENGTH
+        ].tolist()
 
-    # Get length of document tokens, and filter so that total tokens is less than 30,000
-    documents = np.array(documents)[
-        np.array([len(enc.encode(doc.page_content)) for doc in documents]).cumsum()
-        < MAX_TOKEN_LENGTH
-    ].tolist()
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", generate_prompt),
-            ("human", """Question: {question}
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", generate_prompt),
+                ("human", """Question: {question}
 
 Context:
 {context}
@@ -749,33 +749,33 @@ Context:
 A reminder of the question you should answer: {question}
 
 Remember to return the answer in English only.""",
-            ),
-        ]
-    )
-
-    # LLM Chain
-    rag_chain = prompt | llm | StrOutputParser()
-
-    # Format context
-    context = format_docs(documents)
-
-    # Calculate length of context
-    context_length = len(enc.encode(context))
-    # Reduce context if too long to fit within token window
-    if context_length > MAX_TOKEN_LENGTH:
-        print("Length of context too long, truncating: ", len(enc.encode(context)))
-        print("Original Length: ", len(context))
-        # Reduce context length by ratio
-        reduced_size = int(
-            (context_length - MAX_TOKEN_LENGTH) / MAX_TOKEN_LENGTH * len(context)
+                ),
+            ]
         )
-        context = context[:-reduced_size]
-        print("Reduced Length: ", len(context), len(enc.encode(context)))
 
-    # Generate answer given context and question
-    generation = rag_chain.invoke(
-        {"context": context, "question": state["question_en"]}
-    )
+        # LLM Chain
+        rag_chain = prompt | llm | StrOutputParser()
+
+        # Format context
+        context = format_docs(documents)
+
+        # Calculate length of context
+        context_length = len(enc.encode(context))
+        # Reduce context if too long to fit within token window
+        if context_length > MAX_TOKEN_LENGTH:
+            print("Length of context too long, truncating: ", len(enc.encode(context)))
+            print("Original Length: ", len(context))
+            # Reduce context length by ratio
+            reduced_size = int(
+                (context_length - MAX_TOKEN_LENGTH) / MAX_TOKEN_LENGTH * len(context)
+            )
+            context = context[:-reduced_size]
+            print("Reduced Length: ", len(context), len(enc.encode(context)))
+
+        # Generate answer given context and question
+        generation = rag_chain.invoke(
+            {"context": context, "question": state["question_en"]}
+        )
 
     # Save generated answer to cache
     qa_id = generate_qa_id(state["initial_question"], generation)

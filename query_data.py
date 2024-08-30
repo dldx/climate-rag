@@ -224,6 +224,7 @@ def query_source_documents(
             ]
         ]
     ] = None,
+    limit: Optional[int] = 10_000,
 ) -> pd.DataFrame:
     """
     Query the database for documents with a specific metadata key-value pair. Currently only supports querying by source.
@@ -232,6 +233,7 @@ def query_source_documents(
         db: The database object
         source_uri: The source URI to query for. eg. "*carbontracker.org*" for wildcard search or "https://carbontracker.org" for exact match
         print: Whether to print the results
+        fields: The fields to return in the DataFrame. Defaults to all fields. Available fields are: "source", "page_content", "raw_html", "date_added", "page_length", "title", "company_name"
 
     Returns:
         pd.DataFrame: The documents that match the query
@@ -246,7 +248,7 @@ def query_source_documents(
             "title",
             "company_name",
         ]
-    keys = ("climate-rag::source:" + pd.Series(get_sources_based_on_filter(source_uri, r))).tolist()
+    keys = ("climate-rag::source:" + pd.Series(get_sources_based_on_filter(source_uri, limit, r))).tolist()
     if len(keys) == 0:
         df = pd.DataFrame(columns=fields)
     else:

@@ -128,7 +128,9 @@ def add_urls_to_db(
                 or url.lower().endswith(".zip")
             ):
                 # Cannot load excel files right now
-                raise Exception(f"Cannot load Excel files: {url}")
+                error_hash = store_error_in_redis(
+                    url, "Cannot load excel files", "add_urls_to_db"
+                )
             else:
                 if use_firecrawl:
                     docs += add_urls_to_db_firecrawl([url], db)
@@ -440,7 +442,7 @@ def delete_document_from_db(source_uri: str, db, r):
         print(f"Document not found in chroma db: {source_uri}")
 
 
-def get_sources_based_on_filter(rag_filter: str, r) -> List[str]:
+def get_sources_based_on_filter(rag_filter: str, limit, r) -> List[str]:
     """
     Get all sources from redis based on a filter.
 
@@ -463,7 +465,7 @@ def get_sources_based_on_filter(rag_filter: str, r) -> List[str]:
         source_list = [
             doc.id.replace("climate-rag::source:", "")
             for doc in r.ft("idx:source")
-            .search(Query(rag_filter).no_content().paging(0, 10000).timeout(5000))
+            .search(Query(rag_filter).no_content().paging(0, limit).timeout(5000))
             .docs
         ]
     except ResponseError:

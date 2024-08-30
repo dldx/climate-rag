@@ -9,6 +9,7 @@ log.txt
 .git-old-history
 *.ipynb
 tmp
+
 # Created by https://www.toptal.com/developers/gitignore/api/python,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,linux
 
@@ -202,3 +203,4 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python,linux
 crag.ipynb
 crag.ipynb
+dump.rdb
