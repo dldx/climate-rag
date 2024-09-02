@@ -15,6 +15,7 @@
 
 ```mermaid
 graph
+    Start[Ask a question] --> A
     subgraph "RAG Application Workflow"
         A[Improve Question] --> B[Formulate Query]
         B --> C{Decide to Generate}
