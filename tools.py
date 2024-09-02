@@ -467,7 +467,7 @@ def get_sources_based_on_filter(
         source_list = [
             doc.id.replace("climate-rag::source:", "")
             for doc in r.ft("idx:source")
-            .search(Query(rag_filter).no_content().paging(0, limit).timeout(5000))
+            .search(Query(rag_filter).dialect(2).no_content().paging(0, limit).timeout(5000))
             .docs
         ]
     except ResponseError:

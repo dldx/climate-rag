@@ -650,7 +650,7 @@ footer {
 
         # Retrieve source markdown
         page_content = query_source_documents(
-            db, f"*{url}", print_output=False, fields=["page_content"]
+            db, f'@source:"{url}"', print_output=False, fields=["page_content"]
         )["page_content"]
         if len(page_content) > 0:
             page_content = page_content.iloc[0]
