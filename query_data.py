@@ -248,7 +248,7 @@ def query_source_documents(
             "title",
             "company_name",
         ]
-    keys = ("climate-rag::source:" + pd.Series(get_sources_based_on_filter(source_uri, limit, r))).tolist()
+    keys = ("climate-rag::source:" + pd.Series(get_sources_based_on_filter(rag_filter=source_uri, limit=limit, r=r))).tolist()
     if len(keys) == 0:
         df = pd.DataFrame(columns=fields)
     else:

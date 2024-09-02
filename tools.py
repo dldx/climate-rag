@@ -442,7 +442,9 @@ def delete_document_from_db(source_uri: str, db, r):
         print(f"Document not found in chroma db: {source_uri}")
 
 
-def get_sources_based_on_filter(rag_filter: str, limit, r) -> List[str]:
+def get_sources_based_on_filter(
+    rag_filter: str, r: Any, limit: int = 10_000
+) -> List[str]:
     """
     Get all sources from redis based on a filter.
 

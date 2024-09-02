@@ -210,7 +210,7 @@ def retrieve(state: GraphState) -> GraphState:
     if rag_filter == "":
         rag_filter = None
     if rag_filter is not None:
-        source_list = get_sources_based_on_filter(rag_filter, r)
+        source_list = get_sources_based_on_filter(rag_filter=rag_filter, r=r)
         if len(source_list) == 0:
             print("No source documents found in database")
             return {"documents": [], "search_prompts": state["search_prompts"]}
