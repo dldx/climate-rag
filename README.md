@@ -14,7 +14,7 @@
 * RAG process means LLM (almost) always cites the correct sources.
 
 ```mermaid
-graph LR
+graph
     subgraph "RAG Application Workflow"
         A[Improve Question] --> B[Formulate Query]
         B --> C{Decide to Generate}
