@@ -72,15 +72,10 @@ graph
 
 **Please note: this package is still under development. It has only been tested in a couple of settings so far!**
 
-Create a virtual environment and install the required packages using the following commands:
+We use uv to manage packages.
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-```bash
-pip install -r requirements.txt
+pip install uv
 ```
 
 Add all the relevant API keys to a .env file in the root directory.
@@ -125,20 +120,20 @@ The following API keys are required or optional for Climate RAG to function:
 First, you will need to start a ChromaDB server:
 
 ```bash
-chroma run --path chroma/
+uv run chroma run --path chroma/
 ```
 
-Also ensure that you have a Redis server running:
+Also ensure that you have a Redis Stack server running:
 
 ```bash
-redis-cli
+redis-cli ping
 ```
 
 
 To run a query against the RAG pipeline, execute the following command, replacing `"Give me a list of coal power plants in Vietnam"` with your desired query:
 
 ```bash
-python query_data.py "Give me a list of coal power plants in Vietnam"
+uv run query_data.py "Give me a list of coal power plants in Vietnam"
 ```
 
 See the [Advanced Options](#advanced-options) section for additional configuration options.
@@ -149,7 +144,7 @@ See the [Advanced Options](#advanced-options) section for additional configurati
 To launch the Climate RAG web app, run the following command:
 
 ```bash
-python webapp.py
+uv run webapp.py
 ```
 
 This will launch the app in your web browser. The web app provides a more user-friendly interface for interacting with the RAG pipeline. It features:
@@ -184,7 +179,7 @@ To populate the database with relevant documents, you can either provide a list 
 To add new URLs to the database, run the following command, replacing `https://www.example.com` with the desired URL.  You can add multiple URLs by separating them with spaces:
 
 ```bash
-python populate_database.py --urls "https://www.example.com" "https://www.another-example.com"
+uv run populate_database.py --urls "https://www.example.com" "https://www.another-example.com"
 ```
 
 **Uploading Files**
@@ -192,7 +187,7 @@ python populate_database.py --urls "https://www.example.com" "https://www.anothe
 To add local files to the database, run the following command, replacing `path/to/file1.pdf` with the desired file path.  You can add multiple files by separating them with spaces:
 
 ```bash
-python populate_database.py --files "path/to/file1.pdf" "path/to/file2.md"
+uv run populate_database.py --files "path/to/file1.pdf" "path/to/file2.md"
 ```
 
 **Ingesting a Directory**
@@ -200,7 +195,7 @@ python populate_database.py --files "path/to/file1.pdf" "path/to/file2.md"
 To ingest a directory of documents, put your files in the `data/` directory and then run the following command:
 
 ```bash
-python populate_database.py
+uv run populate_database.py
 ```
 
 
@@ -209,7 +204,7 @@ python populate_database.py
 To remove documents from the database, you can use the `cleanup_database.py` script. This script will identify and remove documents that contain certain error messages or have a page length shorter than a predefined threshold. To run the script:
 
 ```bash
-python cleanup_database.py
+uv run cleanup_database.py
 ```
 
 ###  Adding Additional Metadata
@@ -236,7 +231,7 @@ The RAG pipeline offers various configuration options. You can customize the beh
 For example, to run a query in Chinese with a maximum of 5 search queries, you would use the following command:
 
 ```bash
-python query_data.py "给我一份关于越南煤电厂的清单" --language zh --max-search-queries 5
+uv run query_data.py "给我一份关于越南煤电厂的清单" --language zh --max-search-queries 5
 ```
 ## Acknowledgements:
 * [Pixegami](https://github.com/pixegami/rag-tutorial-v2) for initial RAG workflow
