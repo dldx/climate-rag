@@ -1,7 +1,7 @@
 import datetime
 import pandas as pd
 from typing_extensions import TypedDict
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from pydantic import field_serializer
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.schema import Document

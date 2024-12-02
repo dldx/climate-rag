@@ -23,7 +23,7 @@ from get_embedding_function import get_embedding_function
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from langchain_community.vectorstores.utils import filter_complex_metadata
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
 import datetime
 

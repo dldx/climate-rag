@@ -12,7 +12,7 @@ from langchain.schema import Document
 from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from llms import get_chatbot, get_max_token_length
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 
 from tools import (
@@ -94,10 +94,6 @@ def improve_question(state: GraphState) -> GraphState:
         "question_en": state["question_en"],
         "initial_question": state["initial_question"],
     }
-
-
-from langchain_core.pydantic_v1 import BaseModel, Field
-from langchain_core.output_parsers import PydanticOutputParser
 
 
 def formulate_query(state: GraphState) -> GraphState:
@@ -429,7 +425,7 @@ def web_search(state: GraphState) -> GraphState:
 
     print("---WEB SEARCH---")
     print(f"Running {num_queries} search queries")
-    documents = state["documents"] or []
+    documents = state.get("documents", [])
     search_results = []
     for search_prompt in state["search_prompts"][:num_queries]:
         if state["language"] == "en":
