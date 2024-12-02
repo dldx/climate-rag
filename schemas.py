@@ -4,7 +4,7 @@ from typing_extensions import TypedDict
 from pydantic import BaseModel, Field
 from pydantic import field_serializer
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 from typing import Any, List, Literal, Optional, Tuple
 

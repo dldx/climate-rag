@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import os
 import shutil
 import hashlib
-from langchain.schema import Document
+from langchain_core.documents import Document
 from gradio_log import Log
 from ulid import ULID
 import sys
@@ -319,7 +319,6 @@ footer {
                         scale=1,
                         visible=False,
                     )
-                    clear = gr.ClearButton([chat_input, chatbot], scale=5)
     with gr.Tab(
         "Previous queries", elem_classes=["h-full", "scroll-y"]
     ) as previous_queries_tab:
@@ -509,9 +508,6 @@ footer {
         outputs=[questions_state, chat_header],
         cancels=[converse_event],
         queue=False,
-    )
-    clear.click(
-        fn=lambda: (None, []), inputs=None, outputs=[chatbot, chat_state], queue=False
     )
 
     def filter_documents(search_query):

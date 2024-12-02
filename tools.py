@@ -806,7 +806,11 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
     from langchain_core.output_parsers import PydanticOutputParser
     import tiktoken
 
-    from langchain.prompts import PromptTemplate, ChatPromptTemplate
+     
+    
+    from langchain_core.prompts import ChatPromptTemplate
+    
+    from langchain_core.prompts import PromptTemplate
 
     parser = PydanticOutputParser(pydantic_object=SourceMetadata)
 

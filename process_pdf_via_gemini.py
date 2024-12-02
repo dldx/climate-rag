@@ -23,8 +23,12 @@ def process_pdf_via_gemini(pdf_path: str | os.PathLike) -> Tuple[PDFMetadata, st
         PDFMetadata: The extracted metadata from the PDF.
         str: The PDF content converted to markdown.
     """
-    from langchain.prompts import PromptTemplate, ChatPromptTemplate
-    from langchain.output_parsers import PydanticOutputParser
+    
+    
+    from langchain_core.prompts import ChatPromptTemplate
+    
+    from langchain_core.prompts import PromptTemplate
+    from langchain_core.output_parsers import PydanticOutputParser
     from langchain_core.messages import HumanMessage
     from prompts import pdf_metadata_extractor_prompt, convert_to_md_prompt
     from helpers import bin_list_into_chunks

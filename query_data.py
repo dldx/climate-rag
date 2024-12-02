@@ -198,7 +198,7 @@ def main():
                         sys.exit(0)
 
             # Ask user for feedback
-            if key == "generate":
+            if key == '__interrupt__':
                 if args.yes:
                     user_happy_with_answer = True
                 else:

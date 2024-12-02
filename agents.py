@@ -8,8 +8,12 @@ from typing_extensions import TypedDict
 from langcodes import Language
 from langchain_core.output_parsers import StrOutputParser
 
-from langchain.schema import Document
-from langchain.prompts import PromptTemplate, ChatPromptTemplate
+from langchain_core.documents import Document
+
+
+from langchain_core.prompts import ChatPromptTemplate
+
+from langchain_core.prompts import PromptTemplate
 from llms import get_chatbot, get_max_token_length
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
@@ -605,7 +609,7 @@ def add_urls_to_database(state: GraphState) -> GraphState:
     # Add urls to database
     docs = add_urls_to_db(urls, db, use_firecrawl=use_firecrawl)
     # Check if docs need to be further crawled
-    if state["do_crawl"]:
+    if state.get("do_crawl", False):
         for doc in docs:
             crawl_decision = crawl_or_not(doc, state["question"])
             print(crawl_decision)
@@ -693,7 +697,7 @@ def decide_to_generate(state: GraphState):
         str: Binary decision for next node to call
     """
 
-    if state["initial_generation"]:
+    if state.get("initial_generation", False):
         return "generate"
     else:
         # Change initial_generation to True for next cycle
@@ -713,7 +717,7 @@ def decide_to_search(state):
 
     """
 
-    if state["user_happy_with_answer"]:
+    if state.get("user_happy_with_answer", False):
         return "END"
     else:
         state.pop("user_happy_with_answer", None)
@@ -740,7 +744,7 @@ def generate(state: GraphState) -> GraphState:
     # If there are no documents, save a message instead
     if len(documents) == 0:
         generation = """No relevant documents found to generate answer from!""" + (
-            " Check your RAG filters are correct!" if state["rag_filter"] else ""
+            " Check your RAG filters are correct!" if state.get("rag_filter", False) else ""
         )
     else:
         # Get length of document tokens, and filter so that total tokens is less than 30,000
@@ -795,7 +799,7 @@ Remember to return the answer in English only.""",
     qa_map = {
         "answer": generation,
         "question": state["initial_question"],
-        "rag_filter": state["rag_filter"] if state["rag_filter"] else "*",
+        "rag_filter": state["rag_filter"] if state.get("rag_filter", False) else "*",
         "doc_ids": msgspec.json.encode([doc.metadata["id"] for doc in documents]),
         "sources": msgspec.json.encode(
             list(
