@@ -159,7 +159,6 @@ def generate_search_query(state: GraphState) -> GraphState:
 
     parser = PydanticOutputParser(pydantic_object=SearchQuery)
 
-
     extract_search_prompt = ChatPromptTemplate.from_messages(
         [
             ("system", generate_searches_prompt),
@@ -244,7 +243,10 @@ from functools import partial
 def get_metadata_for_source(r, use_llm: bool, source: str) -> dict:
     try:
         metadata = get_source_document_extra_metadata(
-            r, source, metadata_fields=["title", "company_name", "publishing_date"], use_llm=use_llm
+            r,
+            source,
+            metadata_fields=["title", "company_name", "publishing_date"],
+            use_llm=use_llm,
         )
     except:
         # If metadata not found, continue
@@ -277,7 +279,11 @@ def add_additional_metadata(state: GraphState) -> GraphState:
     source_metadatas = list(map(func, unique_sources))
 
     # Now add metadata to documents
-    source_metadatas_df = pd.DataFrame(source_metadatas).reindex(["source", "title", "company_name", "publishing_date"], axis=1).set_index("source")
+    source_metadatas_df = (
+        pd.DataFrame(source_metadatas)
+        .reindex(["source", "title", "company_name", "publishing_date"], axis=1)
+        .set_index("source")
+    )
     for doc in documents:
         doc.metadata = {
             **doc.metadata,
@@ -303,20 +309,23 @@ def rerank_docs(state: GraphState) -> GraphState:
     documents = state["documents"]
     question = state["question"]
     formatted_docs = [
-            f"""Title: {doc.metadata.get("title", "") if not pd.isna(doc.metadata.get("title", "")) else ""}
+        f"""Title: {doc.metadata.get("title", "") if not pd.isna(doc.metadata.get("title", "")) else ""}
 Company name: '{doc.metadata.get("company_name", "") if not pd.isna(doc.metadata.get("company_name", "")) else ""}'
 Contents: {doc.page_content}
 """
-            for doc in documents
-        ]
+        for doc in documents
+    ]
 
     rerank_api = "cohere"
 
     if rerank_api == "jina":
         from langchain_community.document_compressors import JinaRerank
+
         try:
             reranker = JinaRerank(model="jina-reranker-v2-base-multilingual")
-            reranked_results = reranker.rerank(query=question, documents=formatted_docs, top_n=len(documents))
+            reranked_results = reranker.rerank(
+                query=question, documents=formatted_docs, top_n=len(documents)
+            )
         except Exception as e:
             print("Reranker failed: ", e)
             rerank_api = "cohere"
@@ -344,9 +353,7 @@ Contents: {doc.page_content}
             ]
         except Exception as e:
             print("Reranker failed: ", e)
-    print(
-        "Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]]
-    )
+    print("Reranked Documents: ", [doc.metadata["id"] for doc in state["documents"]])
 
     return {"documents": state["documents"]}
 
@@ -472,17 +479,27 @@ def web_search(state: GraphState) -> GraphState:
         ]
     # Rank results by frequency in search results and rank in individual search results
     # Use average of combined rank and frequency rank to sort
-    ranked_search_results = pd.DataFrame(search_results).pipe(lambda df: df.join(df.value_counts("source"), on="source")).assign(final_rank = lambda x: x["rank"] - x["count"]).groupby("source").agg({"final_rank": "mean", "doc":"first"}).sort_values("final_rank").doc.tolist()
+    ranked_search_results = (
+        pd.DataFrame(search_results)
+        .pipe(lambda df: df.join(df.value_counts("source"), on="source"))
+        .assign(final_rank=lambda x: x["rank"] - x["count"])
+        .groupby("source")
+        .agg({"final_rank": "mean", "doc": "first"})
+        .sort_values("final_rank")
+        .doc.tolist()
+    )
     # Scale total number of results by number of queries
-    max_results_to_add = min((5 * num_queries), 20)
+    max_results_to_add = min((10 * num_queries), 30)
     # Add web search results to documents
     documents += ranked_search_results[:max_results_to_add]
 
     state["documents"] = documents
 
-    print(f"""Identified {len(documents)} web search results: {
+    print(
+        f"""Identified {len(documents)} web search results: {
         [doc.metadata["source"] for doc in documents if doc.metadata.get("web_search")]
-    }""")
+    }"""
+    )
 
     return {
         "documents": documents,
@@ -724,12 +741,10 @@ def generate(state: GraphState) -> GraphState:
     llm = get_chatbot(state["llm"])
     MAX_TOKEN_LENGTH = get_max_token_length(state["llm"])
 
-
     # If there are no documents, save a message instead
     if len(documents) == 0:
-        generation = (
-            """No relevant documents found to generate answer from!"""
-            + (" Check your RAG filters are correct!" if state["rag_filter"] else "")
+        generation = """No relevant documents found to generate answer from!""" + (
+            " Check your RAG filters are correct!" if state["rag_filter"] else ""
         )
     else:
         # Get length of document tokens, and filter so that total tokens is less than 30,000
@@ -741,7 +756,9 @@ def generate(state: GraphState) -> GraphState:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", generate_prompt),
-                ("human", """Question: {question}
+                (
+                    "human",
+                    """Question: {question}
 
 Context:
 {context}

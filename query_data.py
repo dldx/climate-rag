@@ -7,9 +7,10 @@ from dotenv import load_dotenv
 import pandas as pd
 from agents import GraphState
 from helpers import clean_urls
-from tools import get_sources_based_on_filter, get_vector_store
+from tools import format_docs, get_sources_based_on_filter, get_vector_store
 import langcodes
 from cache import r
+
 # os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
 
@@ -93,6 +94,17 @@ def main():
         help="The language model to use. One of 'gpt-4o', 'mistral', 'claude'",
         default="claude",
     )
+    parser.add_argument(
+        "--print-docs",
+        action=argparse.BooleanOptionalAction,
+        help="Whether to print a formatted list of documents returned by the query",
+    )
+
+    parser.add_argument(
+        "--print-docs-only",
+        action=argparse.BooleanOptionalAction,
+        help="Whether to print only the documents returned by the query and then exit.",
+    )
 
     parser.add_argument(
         "--get-docs",
@@ -116,7 +128,7 @@ def main():
 
     parser.add_argument(
         "--yes",
-        action='store_true',
+        action="store_true",
         help="Whether to automatically accept the answer",
     )
 
@@ -144,11 +156,15 @@ def main():
     if len(args.get_docs) > 0:
         get_documents_from_db(db, args.get_docs)
     elif args.get_source_doc is not None:
-        query_source_documents(db, args.get_source_doc, fields=["source", "page_content"])
+        query_source_documents(
+            db, args.get_source_doc, fields=["source", "page_content"]
+        )
     else:
         # If query_text is too short, return a message
         if len(query_text) < 5:
-            pretty_print("Please provide a more complete question of at least 5 characters.")
+            pretty_print(
+                "Please provide a more complete question of at least 5 characters."
+            )
             return
         continue_after_interrupt = False
         user_happy_with_answer = False
@@ -168,7 +184,18 @@ def main():
                 continue_after_interrupt=continue_after_interrupt,
                 happy_with_answer=user_happy_with_answer,
             ):
-                pass
+                if (
+                    args.add_additional_metadata and key == "add_additional_metadata"
+                ) or (
+                    (args.add_additional_metadata is False)
+                    and key == "retrieve_from_database"
+                ):
+                    documents = value["documents"]
+                    if args.print_docs:
+                        print(format_docs(documents))
+                    if args.print_docs_only:
+                        print(format_docs(documents))
+                        sys.exit(0)
 
             # Ask user for feedback
             if key == "generate":
@@ -176,9 +203,9 @@ def main():
                     user_happy_with_answer = True
                 else:
                     user_happy_with_answer = (
-                        input("Are you happy with the answer? (y / n=web search)").lower()[
-                            0
-                        ]
+                        input(
+                            "Are you happy with the answer? (y / n=web search)"
+                        ).lower()[0]
                         == "y"
                     )
 
@@ -248,7 +275,12 @@ def query_source_documents(
             "title",
             "company_name",
         ]
-    keys = ("climate-rag::source:" + pd.Series(get_sources_based_on_filter(rag_filter=source_uri, limit=limit, r=r))).tolist()
+    keys = (
+        "climate-rag::source:"
+        + pd.Series(
+            get_sources_based_on_filter(rag_filter=source_uri, limit=limit, r=r)
+        )
+    ).tolist()
     if len(keys) == 0:
         df = pd.DataFrame(columns=fields)
     else:
@@ -260,21 +292,15 @@ def query_source_documents(
                 print(e, key)
 
             all_docs.append(doc)
-        df = (
-            pd.concat(all_docs, axis=1)
-            .T)
+        df = pd.concat(all_docs, axis=1).T
         if "date_added" in fields:
-            df = (df.assign(
+            df = df.assign(
                 # Convert unix timestamp to datetime
                 date_added=lambda x: pd.to_datetime(
                     x["date_added"].astype(float), unit="s", errors="coerce"
                 ).dt.strftime("%Y-%m-%d"),
-            ))
-        df = (df
-            .reindex(
-                columns=fields
             )
-        )
+        df = df.reindex(columns=fields)
     if print_output:
         # Return df as list of rows
         for row in df.to_dict(orient="records"):
@@ -318,7 +344,9 @@ def get_all_documents_as_df(db) -> pd.DataFrame:
 
 def run_query(
     question: str,
-    llm: Literal["gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude", "llama-3.1"] = "claude",
+    llm: Literal[
+        "gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude", "llama-3.1"
+    ] = "claude",
     rag_filter: Optional[str] = None,
     improve_question: Optional[bool] = True,
     search_tool: Literal["serper", "tavily", "baidu"] = "serper",
@@ -326,7 +354,7 @@ def run_query(
     do_crawl: Optional[bool] = True,
     max_search_queries: Optional[int] = 1,
     do_add_additional_metadata: Optional[bool] = True,
-    language: Literal["en", "zh", "vi"] = "en",
+    language: Literal["en", "ar", "zh", "de", "id", "it", "ja", "kk", "ko", "ru", "es", "vi", "tl"] = "en",
     initial_generation: Optional[bool] = True,
     history: Optional[List] = [],
     mode: Optional[Literal["gui", "cli"]] = "cli",

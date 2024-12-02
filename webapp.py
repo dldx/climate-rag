@@ -99,6 +99,7 @@ def climate_chat(
 
     if getting_feedback:
         message = questions[-1]
+        print([message])
     else:
         questions.append(message)
     if rag_filter == "":
@@ -262,6 +263,7 @@ footer {
                         ("Russian", "ru"),
                         ("Spanish", "es"),
                         ("Vietnamese", "vi"),
+                        ("Tagalog", "tl"),
                     ],
                     label="Language",
                     value="en",

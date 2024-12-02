@@ -1,6 +1,6 @@
 import logging
 import shutil
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import msgspec
 from pathvalidate import sanitize_filename as _sanitize_filename
 import os
@@ -143,7 +143,7 @@ def generate_qa_id(question: str, answer: str) -> str:
 
     return qa_id
 
-def compile_answer(generation: str, initial_question: str, sources: List[str | None]) -> str:
+def compile_answer(generation: str, initial_question: str, sources: List[str | Dict[str, Any] | None]) -> str:
     """
     Compile the answer from the generation and the sources.
 
@@ -161,7 +161,7 @@ def compile_answer(generation: str, initial_question: str, sources: List[str | N
         + "\n\n".join(
             set(
                 [
-                    (" * " + clean_urls([source], os.environ.get("STATIC_PATH", ""))[0])
+                    (" * " + clean_urls([source], os.environ.get("STATIC_PATH", ""))[0] if isinstance(source, str) else " * " + str(source))
                     for source in sources
                     if source is not None
                 ]

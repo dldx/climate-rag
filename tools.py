@@ -9,6 +9,7 @@ import tempfile
 from typing import Any, Dict, List, Optional, Sequence
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.document_loaders import FireCrawlLoader
+from langchain_community.document_loaders import YoutubeLoader
 import shutil
 import glob
 from typing import Literal
@@ -131,6 +132,10 @@ def add_urls_to_db(
                 error_hash = store_error_in_redis(
                     url, "Cannot load excel files", "add_urls_to_db"
                 )
+            # Check if it is a youtube url
+            elif "youtube.com/watch?v=" in url:
+                # Use the youtube loader
+                docs += add_urls_to_db_youtube([url], db)
             else:
                 if use_firecrawl:
                     docs += add_urls_to_db_firecrawl([url], db)
@@ -280,6 +285,36 @@ def add_urls_to_db_html(urls: List[str], db) -> List[Document]:
                     )
                     webdocs = loader.load()
                     doc.metadata["raw_html"] = webdocs[0].page_content
+                add_doc_to_redis(r, doc)
+                chunks = split_documents([doc])
+                add_to_chroma(db, chunks)
+                docs += [doc]
+        else:
+            print("Already in database: ", url)
+    return docs
+
+def add_urls_to_db_youtube(urls: List[str], db) -> List[Document]:
+    docs = []
+    for url in urls:
+        ids_existing = r.keys(f"*{url}")
+        # Only add url if it is not already in the database
+        if len(ids_existing) == 0:
+            print("Adding to database: ", url)
+
+            loader = YoutubeLoader.from_youtube_url(
+            youtube_url=url,
+            # add_video_info=True,
+            language=["en"],
+            translation="en",
+            )
+            doc = loader.load()[0]
+            doc.metadata["source"] = url
+            doc.metadata["date_added"] = datetime.datetime.now().isoformat()
+            doc.metadata["loader"] = "youtube"
+            page_errors = check_page_content_for_errors(doc.page_content)
+            if page_errors:
+                print(f"[Youtube] Error loading {url}: {page_errors}")
+            else:
                 add_doc_to_redis(r, doc)
                 chunks = split_documents([doc])
                 add_to_chroma(db, chunks)
@@ -475,20 +510,23 @@ def get_sources_based_on_filter(
         source_list = []
     return source_list
 
+def compile_docs_metadata(docs: list[Document]) -> list[Dict[str, str]]:
+    """
+    Compile metadata from a list of documents.
 
-def format_docs(docs):
-    formatted_docs = "\n\n".join(
-        """
-Title: {title}
-Company: {company_name}
-Source: {source}
-Date published: {publishing_date}
-Content:
-{content}
+    Args:
+        docs: A list of documents, each containing metadata. Metadata should contain the following:
+            - title
+            - company_name
+            - publishing_date
+            - source
 
----
-""".format(
-            title=(
+    Returns:
+        A list of metadata dictionaries.
+    """
+    metadata = []
+    for doc in docs:
+        doc_metadata = dict(title=(
                 doc.metadata.get("title", "")
                 if not pd.isna(doc.metadata.get("title"))
                 else ""
@@ -510,9 +548,39 @@ Content:
                 ]
                 if "source" in doc.metadata.keys()
                 else ""
-            ),
+            ))
+        metadata.append(doc_metadata)
+    return metadata
+
+
+def format_docs(docs):
+    """
+    Format a list of documents into a string.
+
+    Args:
+        docs: A list of documents, each containing metadata. Metadata should contain the following:
+            - title
+            - company_name
+            - publishing_date
+            - source
+            - content
+
+    Returns:
+        A formatted string containing the metadata and content of each document, ready to go into an LLM as context."""
+
+    formatted_docs = "\n\n".join(
+        """
+Title: {title}
+Company: {company_name}
+Source: {source}
+Date published: {publishing_date}
+Content:
+{content}
+
+---
+""".format(**doc_metadata
         )
-        for doc in docs
+        for doc_metadata in compile_docs_metadata(docs)
     )
 
     return formatted_docs
