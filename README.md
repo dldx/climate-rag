@@ -13,6 +13,8 @@
 * Command-line tools and python API to enable easy automation
 * RAG process means LLM (almost) always cites the correct sources.
 
+![Climate RAG Workflow](./Climate%20RAG%20flowchart.png)
+
 ```mermaid
 graph
     Start[Ask a question] --> A
