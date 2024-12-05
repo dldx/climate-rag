@@ -63,7 +63,7 @@ def get_max_token_length(llm: str) -> int:
     if llm == "gpt-4o":
         return 24_000
     elif llm in ("gemini-1.5-flash", "gemini-1.5-pro"):
-        return 50_000
+        return 1_000_000
     else:
         return 24_000
 

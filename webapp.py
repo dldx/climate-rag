@@ -187,12 +187,12 @@ with gr.Blocks(
     title="Climate RAG",
     fill_height=True,
     css="""
-.h-full {
-    height: 85vh;
-}
-.h-20 {
-    height: 20px;
-}
+# .h-full {
+#     height: 85vh;
+# }
+# .h-20 {
+#     height: 20px;
+# }
 .scroll-y {
  overflow-y: scroll;
 }

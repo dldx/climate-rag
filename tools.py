@@ -494,15 +494,22 @@ def get_sources_based_on_filter(
     import re
     from redis.commands.search.query import Query
 
-    print(f"Getting sources based on filter: {rag_filter}")
     if bool(re.search(r"@.+:.+", rag_filter)) is False:
-        rag_filter = f"@source:{rag_filter}"
+        rag_filter = f'@source:"{rag_filter}"'
+    # Replace stopwords with empty string because redis doesn't find urls with stopwords :(
+    stopwords = ["a", "is", "the", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "it", "no", "not", "of", "on", "or", "such", "that", "their", "then", "there", "these", "they", "this", "to", "was", "will", "with"]
+    # If the rag filter is a url, remove stopwords and protocol
+    if bool(re.search(r"https?://", rag_filter)):
+        rag_filter = re.sub(r'\b(?:{})\b'.format('|'.join(stopwords)), '', rag_filter)
+        rag_filter = re.sub(r"https?://", "", rag_filter)
+    print(f"Getting sources based on filter: {rag_filter}")
+
     # Get all sources from redis based on FT.SEARCH
     try:
         source_list = [
             doc.id.replace("climate-rag::source:", "")
             for doc in r.ft("idx:source")
-            .search(Query(rag_filter).dialect(2).no_content().paging(0, limit).timeout(5000))
+            .search(Query(rag_filter).dialect(2).paging(0, limit).timeout(5000))
             .docs
         ]
     except ResponseError:
@@ -806,10 +813,10 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
     from langchain_core.output_parsers import PydanticOutputParser
     import tiktoken
 
-     
-    
+
+
     from langchain_core.prompts import ChatPromptTemplate
-    
+
     from langchain_core.prompts import PromptTemplate
 
     parser = PydanticOutputParser(pydantic_object=SourceMetadata)

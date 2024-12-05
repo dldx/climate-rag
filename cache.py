@@ -45,7 +45,7 @@ if not index_exists(r, index_name):
     try:
         # Create the index
         r.ft(index_name).create_index(
-            schema,
+            source_schema,
             definition=IndexDefinition(prefix=["climate-rag::source:"], index_type=IndexType.HASH)
         )
         print(f"Index '{index_name}' created successfully.")
@@ -70,7 +70,7 @@ if not index_exists(r, index_name):
     try:
         # Create the index
         r.ft(index_name).create_index(
-            schema,
+            answer_schema,
             definition=IndexDefinition(prefix=["climate-rag::answer:"], index_type=IndexType.HASH)
         )
         print(f"Index '{index_name}' created successfully.")

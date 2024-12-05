@@ -40,4 +40,7 @@ dependencies = [
     "html2text>=2024.2.26",
     "bs4>=0.0.2",
     "ipykernel>=6.29.5",
+    "unstructured>=0.16.9",
+    "markdown>=3.7",
+    "youtube-transcript-api>=0.6.3",
 ]
