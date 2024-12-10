@@ -23,10 +23,11 @@ def process_pdf_via_gemini(pdf_path: str | os.PathLike) -> Tuple[PDFMetadata, st
         PDFMetadata: The extracted metadata from the PDF.
         str: The PDF content converted to markdown.
     """
-    
-    
+
+
     from langchain_core.prompts import ChatPromptTemplate
-    
+    import requests
+
     from langchain_core.prompts import PromptTemplate
     from langchain_core.output_parsers import PydanticOutputParser
     from langchain_core.messages import HumanMessage
@@ -36,8 +37,13 @@ def process_pdf_via_gemini(pdf_path: str | os.PathLike) -> Tuple[PDFMetadata, st
     llm = get_chatbot("gemini-1.5-flash")
     # First extract the metadata from the PDF
     parser = PydanticOutputParser(pydantic_object=PDFMetadata)
-    with open(pdf_path, "rb") as f:
-        pdf_data = base64.b64encode(f.read()).decode("utf-8")
+    # If pdf_path is a url, download the file and read the contents
+    if pdf_path.startswith("http"):
+        pdf_data = base64.b64encode(requests.get(pdf_path).content).decode("utf8")
+    else:
+        # If pdf_path is a path to a file, open it and read the contents
+        with open(pdf_path, "rb") as f:
+            pdf_data = base64.b64encode(f.read()).decode("utf-8")
 
     metadata_prompt = ChatPromptTemplate.from_messages(
         [

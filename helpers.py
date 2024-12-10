@@ -10,7 +10,6 @@ import re
 import pandas as pd
 from markdown_pdf import Section, MarkdownPdf
 
-from cache import r
 from schemas import SourceMetadata
 
 def sanitize_filename(filename: str) -> str:
@@ -211,6 +210,7 @@ def get_previous_queries(r, query_filter: str = "*", limit: int = 30) -> pd.Data
 
 def render_qa_pdfs(qa_id):
     from helpers import md_to_pdf, pdf_to_docx
+    from cache import r
     filename = sanitize_filename(qa_id)
     qa_map = r.hgetall(f"climate-rag::answer:{qa_id}")
     if len(qa_map.get("question", "")) == 0:

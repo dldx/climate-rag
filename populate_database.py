@@ -24,16 +24,22 @@ def main():
         default=[],
         help="Add file(s) to the database. Files will be uploaded to temporary hosting and then added to the database.",
     )
+    parser.add_argument(
+        "--force-gemini",
+        action="store_true",
+        help="Use Gemini to process URLs before adding them to the database. This is better for complex PDFs with many tables.",
+    )
     args = parser.parse_args()
 
     # Create (or update) the data store.
     db = get_vector_store()
     if args.urls:
         for url in args.urls:
-            add_urls_to_db([url], db)
+            add_urls_to_db([url], db, use_gemini=args.force_gemini)
     elif args.files:
         upload_documents(args.files, db)
     else:
+        # For local documents
         documents = load_documents()
         chunks = split_documents(documents)
         add_to_chroma(db, chunks)

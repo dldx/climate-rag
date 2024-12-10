@@ -461,20 +461,54 @@ def add_urls_to_db_chrome(urls: List[str], db, headless=True) -> List[Document]:
     return docs_to_return
 
 
-def delete_document_from_db(source_uri: str, db, r):
-    # Delete document from redis
-    existed = r.delete(f"climate-rag::source:{source_uri}") == 1
-    if existed:
-        print(f"Deleted document from redis: {source_uri}")
-    else:
+def delete_document_from_db(source_uri: str, db, r) -> bool:
+    """
+    Delete a document from the database.
+
+    Args:
+        source_uri: The URI of the document to delete.
+        db: The Chroma database instance.
+        r: The Redis connection.
+
+    Returns:
+        bool: True if the document was deleted, False if it was not found.
+    """
+    from redis.commands.search.query import Query
+    # Find original key using redis FT.SEARCH
+    ids = r.ft("idx:source").search(
+        Query(f'@source:"{source_uri}"').dialect(2).return_fields("id")
+    )
+    if len(ids.docs) == 0:
         print(f"Document not found in redis: {source_uri}")
+        return False
+    selected_doc = 0
+    if len(ids.docs) > 1:
+        print(f"Multiple documents found in redis: {source_uri}")
+        # Get user input to select the correct document
+        for i, doc in enumerate(ids.docs):
+            print(f"{i}: {doc.id}")
+        selected_doc = input("Select the document to delete: ")
+        selected_doc = int(selected_doc)
+        if selected_doc < 0 or selected_doc >= len(ids.docs):
+            print("Invalid selection")
+            return False
+    actual_source_uri = ids.docs[selected_doc].id.replace("climate-rag::source:", "")
+
+    # Delete document from redis
+    existed = r.delete(f"climate-rag::source:{actual_source_uri}") == 1
+    if existed:
+        print(f"Deleted document from redis: {actual_source_uri}")
+    else:
+        print(f"Document not found in redis: {actual_source_uri}")
     # Delete document from chroma db
-    docs = db.get(where={"source": {"$in": [source_uri]}}, include=[])
+    docs = db.get(where={"source": {"$in": [actual_source_uri]}}, include=[])
     if len(docs["ids"]) > 0:
         db.delete(ids=docs["ids"])
-        print(f"""Deleted {len(docs["ids"])} documents from chroma db: {source_uri}""")
+        print(f"""Deleted {len(docs["ids"])} documents from chroma db: {actual_source_uri}""")
     else:
-        print(f"Document not found in chroma db: {source_uri}")
+        print(f"Document not found in chroma db: {actual_source_uri}")
+
+    return existed
 
 
 def get_sources_based_on_filter(
