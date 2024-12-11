@@ -351,3 +351,4 @@ def clean_up_metadata_object(source_metadata: SourceMetadata) -> dict:
     source_metadata_map = {k: v for k, v in source_metadata_map.items() if v is not None}
 
     return source_metadata_map
+

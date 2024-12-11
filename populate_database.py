@@ -29,15 +29,28 @@ def main():
         action="store_true",
         help="Use Gemini to process URLs before adding them to the database. This is better for complex PDFs with many tables.",
     )
+    parser.add_argument(
+        "--add-table-context",
+        action="store_true",
+        help="Add additional context to all tables in the document to aid with retrieval.",
+    )
+    parser.add_argument(
+        "--document-prefix",
+        type=str,
+        default="",
+        help="Prefix to add to the documents when uploading to the database.",
+    )
+
+
     args = parser.parse_args()
 
     # Create (or update) the data store.
     db = get_vector_store()
     if args.urls:
         for url in args.urls:
-            add_urls_to_db([url], db, use_gemini=args.force_gemini)
+            add_urls_to_db([url], db, use_gemini=args.force_gemini, table_augmenter=args.add_table_context, document_prefix=args.document_prefix)
     elif args.files:
-        upload_documents(args.files, db)
+        upload_documents(args.files, db, use_gemini=args.force_gemini, table_augmenter=args.add_table_context, document_prefix=args.document_prefix)
     else:
         # For local documents
         documents = load_documents()

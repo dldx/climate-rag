@@ -197,3 +197,66 @@ Summarise any images or charts (including a title and brief description of what 
 Return the page numbers in the output with the format `## Page n of {n_pages}`.
 
 Return only {pages_to_return}."""
+
+table_augmentation_prompt = """You are an expert at creating clear, informative, and concise contextual descriptions for data tables. Your goal is to generate a description that provides context and includes potential retrieval queries.
+
+Generate the description following these guidelines:
+
+- Context Description (2-5 sentences):
+  1. Provide key context about the table's contents
+  2. Highlight the most important information or insights
+  3. Explain the table's relevance and potential use cases
+  4. Use precise, technical language appropriate to the data domain
+
+- Retrieval Queries (5-10 queries):
+  1. Create diverse, semantic search-friendly queries
+  2. Represent different types of information someone might seek
+  3. Use natural language that captures the essence of potential information needs
+  4. Vary in specificity and depth
+
+Output Format:
+```
+Context Description:
+[2-3 sentence description]
+
+Potential Retrieval Queries:
+1. [Specific query exploring high-level insights]
+2. [Detailed query about a specific aspect]
+3. [Comparative or trend-based query]
+4. [Analytical or interpretive query]
+5. [Contextual or background information query]
+```
+
+Example Input Table:
+|
+ Country
+|
+ GDP 2022
+|
+ GDP Growth
+|
+ Inflation Rate
+|
+|
+---------
+|
+----------
+|
+------------
+|
+----------------
+|
+
+Example Output:
+The following economic performance table provides a comparative analysis of national economies for the year 2022. The dataset captures key macroeconomic indicators including Gross Domestic Product (GDP) and inflation rates, offering insights into the economic health and stability of different countries. Critical variations in GDP growth and inflation highlight the diverse economic challenges and opportunities across global markets.
+
+1. What countries showed the highest economic growth in 2022?
+2. How does inflation correlate with GDP growth across different economies?
+3. Compare economic performance of emerging markets vs developed economies
+4. Analyze the relationship between GDP and inflation rates
+5. Identify economic trends and patterns in global economic indicators
+
+Do not return the table itself.
+
+Now, generate a contextual description and retrieval queries for the following table:
+"""

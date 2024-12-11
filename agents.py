@@ -224,7 +224,7 @@ def retrieve(state: GraphState) -> GraphState:
 
     documents = retrieve_multiple_queries(
         [
-            (query.query_en if state["language"] == "en" else query.query)
+            (query.query_en if state.get("language", "en") == "en" else query.query)
             for query in state["search_prompts"]
         ],
         retriever=retriever,

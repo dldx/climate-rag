@@ -6,7 +6,7 @@ from ulid import ULID
 import os
 import logging
 import tempfile
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.document_loaders import FireCrawlLoader
 from langchain_community.document_loaders import YoutubeLoader
@@ -18,6 +18,7 @@ from langchain_text_splitters import (
     MarkdownHeaderTextSplitter,
 )
 from langchain_experimental.text_splitter import SemanticChunker
+from text_splitters import TablePreservingTextSplitter, TablePreservingSemanticChunker
 import msgspec
 from get_embedding_function import get_embedding_function
 from langchain_community.document_loaders import PyPDFDirectoryLoader
@@ -36,7 +37,7 @@ from helpers import (
     upload_file,
 )
 
-from pdf_download import download_urls_in_headed_chrome
+from pdf_download import download_urls_in_headed_chrome, download_urls_with_requests
 
 import tiktoken
 import re
@@ -94,7 +95,7 @@ def check_page_content_for_errors(page_content: str):
         if error in page_content:
             return return_message
 
-    if (page_content == "") or (len(page_content) < 600):
+    if (page_content == "") or (len(page_content) < 400):
         return "Empty or minimal page content"
     if bool(
         re.search(
@@ -108,12 +109,31 @@ def check_page_content_for_errors(page_content: str):
 
 
 def add_urls_to_db(
-    urls: List[str], db: Chroma, use_firecrawl: bool = False, use_gemini: bool = False
+    urls: List[str],
+    db: Chroma,
+    use_firecrawl: bool = False,
+    use_gemini: bool = False,
+    table_augmenter: Optional[bool | Callable[[str], str]] = None,
+    document_prefix: str = "",
 ) -> List[Document]:
-    """Add a list of URLs to the database.
+    """Add a list of URLs to the database. Decide which loader to use based on the URL.
 
-    Decide which loader to use based on the URL.
+    Args:
+        urls: A list of URLs to add to the database.
+        db: The Chroma database instance.
+        use_firecrawl: Whether to use FireCrawl to load the URLs.
+        use_gemini: Whether to use Gemini to process PDFs.
+        table_augmenter: A function to add additional context to tables in the document. If True, use the default table augmenter. If False or None, do not use a table augmenter. If a function, use the provided function.
+        document_prefix: A prefix to add to the documents when uploading to the database.
+
+    Returns:
+        A list of documents that were added to the database.
     """
+
+    if table_augmenter is True:
+        table_augmenter = add_additional_table_context
+    elif table_augmenter is False:
+        table_augmenter = None
 
     docs = []
     for url in urls:
@@ -122,7 +142,12 @@ def add_urls_to_db(
         if len(ids_existing) == 0:
             if url.lower().endswith(".md"):
                 # Can directly download markdown without any processing
-                docs += add_urls_to_db_html([url], db)
+                docs += add_urls_to_db_html(
+                    [url],
+                    db,
+                    table_augmenter=table_augmenter,
+                    document_prefix=document_prefix,
+                )
             elif (
                 url.lower().endswith(".xls")
                 or url.lower().endswith(".xlsx")
@@ -138,18 +163,32 @@ def add_urls_to_db(
                 docs += add_urls_to_db_youtube([url], db)
             else:
                 if use_firecrawl:
-                    docs += add_urls_to_db_firecrawl([url], db)
+                    docs += add_urls_to_db_firecrawl(
+                        [url],
+                        db,
+                        table_augmenter=table_augmenter,
+                        document_prefix=document_prefix,
+                    )
                 elif use_gemini:
                     # Use Gemini to process the PDF
                     # download file using headed chrome
                     temp_dir = tempfile.TemporaryDirectory()
                     try:
-                        downloaded_urls = download_urls_in_headed_chrome(
-                            urls=[url], download_dir=temp_dir.name
-                        )
+                        # Download the file using headed chrome if file is not an image
+                        if ".png" not in url and ".jpg" not in url:
+                            downloaded_urls = download_urls_in_headed_chrome(
+                                urls=[url], download_dir=temp_dir.name
+                            )
+                        else:
+                            downloaded_urls = download_urls_with_requests(
+                                urls=[url], download_dir=temp_dir.name)
                         # Try using Gemini to process the PDF
                         gemini_docs = add_document_to_db_via_gemini(
-                            downloaded_urls[0]["local_path"], url, db
+                            downloaded_urls[0]["local_path"],
+                            url,
+                            db,
+                            table_augmenter=table_augmenter,
+                            document_prefix=document_prefix,
                         )
                         docs += gemini_docs
 
@@ -162,7 +201,10 @@ def add_urls_to_db(
                 else:
                     if "pdf" in url:
                         jina_docs = add_urls_to_db_html(
-                            ["https://r.jina.ai/" + url], db
+                            ["https://r.jina.ai/" + url],
+                            db,
+                            table_augmenter=table_augmenter,
+                            document_prefix=document_prefix,
                         )
                         # Check if the URL has been successfully processed
                         if url in list(
@@ -184,7 +226,7 @@ def add_urls_to_db(
                                 # Then upload the downloaded file to the database
                                 if len(downloaded_urls) > 0:
                                     uploaded_docs = upload_documents(
-                                        files=[downloaded_urls[0]["local_path"]], db=db
+                                        files=[downloaded_urls[0]["local_path"]], db=db, use_gemini=use_gemini, table_augmenter=table_augmenter, document_prefix=document_prefix
                                     )
                                     if len(uploaded_docs) > 0:
                                         # Change the source to the original URL
@@ -197,7 +239,11 @@ def add_urls_to_db(
                                     else:
                                         # Try using Gemini to process the PDF
                                         uploaded_docs = add_document_to_db_via_gemini(
-                                            downloaded_urls[0]["local_path"], url, db
+                                            downloaded_urls[0]["local_path"],
+                                            url,
+                                            db,
+                                            table_augmenter=table_augmenter,
+                                            document_prefix=document_prefix,
                                         )
                                 else:
                                     raise Exception(
@@ -211,7 +257,12 @@ def add_urls_to_db(
                             docs += uploaded_docs
                     else:
                         # use local chrome loader instead
-                        chrome_docs = add_urls_to_db_chrome([url], db)
+                        chrome_docs = add_urls_to_db_chrome(
+                            [url],
+                            db,
+                            table_augmenter=table_augmenter,
+                            document_prefix=document_prefix,
+                        )
                         # Check if the URL has been successfully processed
                         if url in list(
                             map(lambda x: x.metadata["source"], chrome_docs)
@@ -220,7 +271,10 @@ def add_urls_to_db(
                         else:
                             # Otherwise, use jina.ai loader
                             docs += add_urls_to_db_html(
-                                ["https://r.jina.ai/" + url], db
+                                ["https://r.jina.ai/" + url],
+                                db,
+                                table_augmenter=table_augmenter,
+                                document_prefix=document_prefix,
                             )
 
         else:
@@ -233,7 +287,9 @@ def add_urls_to_db(
     return docs
 
 
-def add_urls_to_db_html(urls: List[str], db) -> List[Document]:
+def add_urls_to_db_html(
+    urls: List[str], db, table_augmenter, document_prefix
+) -> List[Document]:
     from langchain_community.document_loaders import AsyncHtmlLoader
     from chromium import user_agents, Rotator
 
@@ -285,13 +341,17 @@ def add_urls_to_db_html(urls: List[str], db) -> List[Document]:
                     )
                     webdocs = loader.load()
                     doc.metadata["raw_html"] = webdocs[0].page_content
+                # Add prefix to document
+                if len(document_prefix) > 0:
+                    doc.page_content = document_prefix + "\n" + doc.page_content
                 add_doc_to_redis(r, doc)
-                chunks = split_documents([doc])
+                chunks = split_documents([doc], table_augmenter=table_augmenter)
                 add_to_chroma(db, chunks)
                 docs += [doc]
         else:
             print("Already in database: ", url)
     return docs
+
 
 def add_urls_to_db_youtube(urls: List[str], db) -> List[Document]:
     docs = []
@@ -302,10 +362,10 @@ def add_urls_to_db_youtube(urls: List[str], db) -> List[Document]:
             print("Adding to database: ", url)
 
             loader = YoutubeLoader.from_youtube_url(
-            youtube_url=url,
-            # add_video_info=True,
-            language=["en"],
-            translation="en",
+                youtube_url=url,
+                # add_video_info=True,
+                language=["en"],
+                translation="en",
             )
             doc = loader.load()[0]
             doc.metadata["source"] = url
@@ -325,8 +385,25 @@ def add_urls_to_db_youtube(urls: List[str], db) -> List[Document]:
 
 
 def add_document_to_db_via_gemini(
-    doc_uri: os.PathLike | str, original_uri: str, db
+    doc_uri: os.PathLike | str,
+    original_uri: str,
+    db,
+    table_augmenter: Optional[Callable[[str], str]] = None,
+    document_prefix: str = "",
 ) -> List[Document]:
+    """
+    Add a document to the database using Google Gemini. Gemini is used to process complex PDFs with many tables.
+
+    Args:
+        doc_uri: The URI of the document to add.
+        original_uri: The original URI of the document.
+        db: The Chroma database instance.
+        table_augmenter: A function to add additional context to tables in the document. If True, use the default table augmenter. If False or None, do not use a table augmenter. If a function, use the provided function.
+        document_prefix: A prefix to add to the documents when uploading to the database. Useful for adding context that is not in the document itself.
+
+    Returns:
+        A list of documents that were added to the database.
+    """
     from process_pdf_via_gemini import process_pdf_via_gemini
 
     docs = []
@@ -335,7 +412,14 @@ def add_document_to_db_via_gemini(
     if len(ids_existing) == 0:
         print("[Gemini] Adding to database: ", original_uri)
         try:
-            pdf_metadata, pdf_contents = process_pdf_via_gemini(doc_uri)
+            pdf_metadata, pdf_contents = process_pdf_via_gemini(
+                doc_uri, document_prefix=document_prefix
+            )
+            # Prefix the document with additional context
+            if len(document_prefix) > 0:
+                # If prefix has not already been added, add it now
+                if not pdf_contents.startswith(document_prefix):
+                    pdf_contents = document_prefix + "\n" + pdf_contents
             doc = Document(
                 metadata={
                     "source": original_uri,
@@ -348,7 +432,9 @@ def add_document_to_db_via_gemini(
             if page_errors:
                 store_error_in_redis(original_uri, page_errors, "gemini")
             else:
-                chunks = split_documents(filter_complex_metadata([doc]))
+                chunks = split_documents(
+                    filter_complex_metadata([doc]), table_augmenter=table_augmenter
+                )
                 add_to_chroma(db, chunks)
                 doc.metadata = {
                     **clean_up_metadata_object(pdf_metadata),
@@ -365,7 +451,9 @@ def add_document_to_db_via_gemini(
     return docs
 
 
-def add_urls_to_db_firecrawl(urls: List[str], db):
+def add_urls_to_db_firecrawl(
+    urls: List[str], db, table_augmenter=None, document_prefix=""
+) -> List[Document]:
 
     docs = []
     for url in urls:
@@ -388,20 +476,40 @@ def add_urls_to_db_firecrawl(urls: List[str], db):
                     print(f"[Firecrawl] Error loading {url}: {page_errors}")
                 else:
                     webdocs = filter_complex_metadata(webdocs)
-                    for doc in webdocs:
+                    for i, doc in enumerate(webdocs):
+                        # Add prefix to document
+                        if len(document_prefix) > 0:
+                            doc.page_content = document_prefix + "\n" + doc.page_content
+                            webdocs[i] = doc
+                        # Then cache the document in redis
                         add_doc_to_redis(r, doc)
-                    chunks = split_documents(webdocs)
+                    chunks = split_documents(webdocs, table_augmenter=table_augmenter)
                     add_to_chroma(db, chunks)
                     docs += webdocs
             except Exception as e:
                 print(f"[Firecrawl] Error loading {url}: {e}")
                 if (("429" in str(e)) or ("402" in str(e))) and "pdf" not in url:
                     # use local chrome loader instead
-                    docs += add_urls_to_db_chrome([url], db)
+                    docs += add_urls_to_db_chrome(
+                        [url],
+                        db,
+                        table_augmenter=table_augmenter,
+                        document_prefix=document_prefix,
+                    )
                 elif "502" in str(e):
-                    docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
+                    docs += add_urls_to_db_html(
+                        ["https://r.jina.ai/" + url],
+                        db,
+                        table_augmenter=table_augmenter,
+                        document_prefix=document_prefix,
+                    )
                 else:
-                    docs += add_urls_to_db_html(["https://r.jina.ai/" + url], db)
+                    docs += add_urls_to_db_html(
+                        ["https://r.jina.ai/" + url],
+                        db,
+                        table_augmenter=table_augmenter,
+                        document_prefix=document_prefix,
+                    )
         else:
             print("Already in database: ", url)
 
@@ -422,7 +530,9 @@ def add_doc_to_redis(r, doc):
     r.hset("climate-rag::source:" + doc_dict["source"], mapping=doc_dict)
 
 
-def add_urls_to_db_chrome(urls: List[str], db, headless=True) -> List[Document]:
+def add_urls_to_db_chrome(
+    urls: List[str], db, headless=True, table_augmenter=None, document_prefix=""
+) -> List[Document]:
     from chromium import AsyncChromiumLoader
     from langchain_community.document_transformers import Html2TextTransformer
 
@@ -452,9 +562,12 @@ def add_urls_to_db_chrome(urls: List[str], db, headless=True) -> List[Document]:
         if page_errors:
             print(f"[Chrome] Error loading {doc.metadata.get('source')}: {page_errors}")
         else:
+            # Add prefix to document
+            if len(document_prefix) > 0:
+                doc.page_content = document_prefix + "\n" + doc.page_content
             # Cache pre-chunked documents in redis
             add_doc_to_redis(r, doc)
-            chunks = split_documents([doc])
+            chunks = split_documents([doc], table_augmenter=table_augmenter)
             add_to_chroma(db, chunks)
             docs_to_return.append(doc)
 
@@ -474,6 +587,7 @@ def delete_document_from_db(source_uri: str, db, r) -> bool:
         bool: True if the document was deleted, False if it was not found.
     """
     from redis.commands.search.query import Query
+
     # Find original key using redis FT.SEARCH
     ids = r.ft("idx:source").search(
         Query(f'@source:"{source_uri}"').dialect(2).return_fields("id")
@@ -504,7 +618,9 @@ def delete_document_from_db(source_uri: str, db, r) -> bool:
     docs = db.get(where={"source": {"$in": [actual_source_uri]}}, include=[])
     if len(docs["ids"]) > 0:
         db.delete(ids=docs["ids"])
-        print(f"""Deleted {len(docs["ids"])} documents from chroma db: {actual_source_uri}""")
+        print(
+            f"""Deleted {len(docs["ids"])} documents from chroma db: {actual_source_uri}"""
+        )
     else:
         print(f"Document not found in chroma db: {actual_source_uri}")
 
@@ -531,10 +647,44 @@ def get_sources_based_on_filter(
     if bool(re.search(r"@.+:.+", rag_filter)) is False:
         rag_filter = f'@source:"{rag_filter}"'
     # Replace stopwords with empty string because redis doesn't find urls with stopwords :(
-    stopwords = ["a", "is", "the", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "it", "no", "not", "of", "on", "or", "such", "that", "their", "then", "there", "these", "they", "this", "to", "was", "will", "with"]
+    stopwords = [
+        "a",
+        "is",
+        "the",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "but",
+        "by",
+        "for",
+        "if",
+        "in",
+        "into",
+        "it",
+        "no",
+        "not",
+        "of",
+        "on",
+        "or",
+        "such",
+        "that",
+        "their",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "to",
+        "was",
+        "will",
+        "with",
+    ]
     # If the rag filter is a url, remove stopwords and protocol
     if bool(re.search(r"https?://", rag_filter)):
-        rag_filter = re.sub(r'\b(?:{})\b'.format('|'.join(stopwords)), '', rag_filter)
+        rag_filter = re.sub(r"\b(?:{})\b".format("|".join(stopwords)), "", rag_filter)
         rag_filter = re.sub(r"https?://", "", rag_filter)
     print(f"Getting sources based on filter: {rag_filter}")
 
@@ -550,6 +700,7 @@ def get_sources_based_on_filter(
         print("Redis error:", str(traceback.format_exc()))
         source_list = []
     return source_list
+
 
 def compile_docs_metadata(docs: list[Document]) -> list[Dict[str, str]]:
     """
@@ -567,7 +718,8 @@ def compile_docs_metadata(docs: list[Document]) -> list[Dict[str, str]]:
     """
     metadata = []
     for doc in docs:
-        doc_metadata = dict(title=(
+        doc_metadata = dict(
+            title=(
                 doc.metadata.get("title", "")
                 if not pd.isna(doc.metadata.get("title"))
                 else ""
@@ -589,7 +741,8 @@ def compile_docs_metadata(docs: list[Document]) -> list[Dict[str, str]]:
                 ]
                 if "source" in doc.metadata.keys()
                 else ""
-            ))
+            ),
+        )
         metadata.append(doc_metadata)
     return metadata
 
@@ -607,7 +760,8 @@ def format_docs(docs):
             - content
 
     Returns:
-        A formatted string containing the metadata and content of each document, ready to go into an LLM as context."""
+        A formatted string containing the metadata and content of each document, ready to go into an LLM as context.
+    """
 
     formatted_docs = "\n\n".join(
         """
@@ -619,7 +773,8 @@ Content:
 {content}
 
 ---
-""".format(**doc_metadata
+""".format(
+            **doc_metadata
         )
         for doc_metadata in compile_docs_metadata(docs)
     )
@@ -662,19 +817,39 @@ def split_documents(
     splitter: Literal["character", "semantic"] = "semantic",
     max_token_length: int = 3000,
     iter_no: int = 0,
+    table_augmenter: Optional[Callable[[str], str]] = None,
 ) -> list[Document]:
+    """
+    Split a list of documents into smaller chunks to store in vector database.
+
+    Args:
+        documents: A list of documents to split.
+        splitter: The text splitter to use. Can be either "semantic" or "character". "semantic" is smarter but slower and more expensive. "character" is faster but dumb.
+        max_token_length: The maximum token length for each chunk. If a chunk is longer than this, it will be split further.
+        iter_no: The iteration number. Used to prevent infinite recursion.
+
+    Returns:
+        A list of split documents.
+    """
     import tiktoken
 
+    enc = tiktoken.encoding_for_model("gpt-4o")
+
     if splitter == "semantic":
-        text_splitter = SemanticChunker(
-            get_embedding_function(), breakpoint_threshold_type="percentile"
+        text_splitter = TablePreservingSemanticChunker(
+            embeddings=get_embedding_function(),
+            breakpoint_threshold_type="percentile",
+            chunk_size=max_token_length,
+            length_function=lambda x: len(enc.encode(x)),
+            table_augmenter=table_augmenter,
         )
     elif splitter == "character":
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=160,
-            length_function=len,
+        text_splitter = TablePreservingTextSplitter(
+            chunk_size=max_token_length,
+            chunk_overlap=0,
+            length_function=lambda x: len(enc.encode(x)),
             is_separator_regex=False,
+            table_augmenter=table_augmenter,
         )
     split_docs = text_splitter.split_documents(documents)
 
@@ -682,7 +857,6 @@ def split_documents(
     if iter_no < 2:
         for doc in split_docs:
             # Check if token length is too long
-            enc = tiktoken.encoding_for_model("gpt-4o")
             if len(enc.encode(doc.page_content)) > max_token_length:
                 doc_index = split_docs.index(doc)
                 split_docs.remove(doc)
@@ -776,15 +950,25 @@ def retrieve_multiple_queries(queries: List[str], retriever, k: int = -1):
     return unique_documents
 
 
-def upload_documents(files: str | List[str], db) -> List[Document]:
+def upload_documents(
+    files: str | List[str],
+    db,
+    use_gemini: bool = False,
+    table_augmenter=None,
+    document_prefix="",
+) -> List[Document | str]:
     """
     Add a document to the database from a local path.
 
     Args:
         file (str): The path to the file to upload.
+        db: The Chroma database instance.
+        use_gemini: Whether to use Gemini to process the PDF.
+        table_augmenter: A function to add additional context to tables in the document. If True, use the default table augmenter. If False or None, do not use a table augmenter. If a function, use the provided function.
+        document_prefix: A prefix to add to the documents when uploading to the database.
 
     Returns:
-        str: The filename of the uploaded file.
+        A list of documents that were added to the database.
     """
     import requests
     import shutil
@@ -837,7 +1021,13 @@ def upload_documents(files: str | List[str], db) -> List[Document]:
                 + filename
             )
             print("Uploaded to tmpfiles.org at ", dl_url)
-        docs += add_urls_to_db_html([sanitize_url(dl_url)], db=db)
+        docs += add_urls_to_db(
+            [sanitize_url(dl_url)],
+            db=db,
+            use_gemini=use_gemini,
+            table_augmenter=table_augmenter,
+            document_prefix=document_prefix,
+        )
     return docs
 
 
@@ -846,8 +1036,6 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
     from prompts import metadata_extractor_prompt
     from langchain_core.output_parsers import PydanticOutputParser
     import tiktoken
-
-
 
     from langchain_core.prompts import ChatPromptTemplate
 
@@ -947,3 +1135,47 @@ def get_source_document_extra_metadata(
         ).isoformat()
 
     return dict_to_return
+
+
+def generate_additional_table_context(table: str) -> str:
+    """
+    Augment a table with additional context to make retrieval more accurate.
+
+    Args:
+        table (str): The table to augment as a markdown string.
+
+    Returns:
+        str: The augmented table.
+    """
+    from prompts import table_augmentation_prompt
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.output_parsers import StrOutputParser
+    from llms import get_chatbot
+
+    llm = get_chatbot("gemini-1.5-flash")
+
+    prompt = ChatPromptTemplate.from_messages(
+        [("system", table_augmentation_prompt), ("human", table)]
+    )
+
+    table_augmenter_chain = prompt | llm | StrOutputParser()
+    additional_context = table_augmenter_chain.invoke({})
+
+    return additional_context
+
+
+def add_additional_table_context(table: str) -> str:
+    """
+    Add additional context to a table to make retrieval more accurate.
+
+    Args:
+        table (str): The table to augment as a markdown string.
+
+    Returns:
+        str: The augmented table.
+    """
+
+    return (
+        f"<table_context>{generate_additional_table_context(table)}</table_context>\n"
+        + table
+    )
