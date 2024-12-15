@@ -1,4 +1,5 @@
 import hashlib
+import asyncio
 import traceback
 import pandas as pd
 from redis import ResponseError
@@ -257,12 +258,12 @@ def add_urls_to_db(
                             docs += uploaded_docs
                     else:
                         # use local chrome loader instead
-                        chrome_docs = add_urls_to_db_chrome(
+                        chrome_docs = asyncio.run(add_urls_to_db_chrome(
                             [url],
                             db,
                             table_augmenter=table_augmenter,
                             document_prefix=document_prefix,
-                        )
+                        ))
                         # Check if the URL has been successfully processed
                         if url in list(
                             map(lambda x: x.metadata["source"], chrome_docs)
@@ -331,6 +332,7 @@ def add_urls_to_db_html(
                 doc.metadata["loader"] = "html"
             page_errors = check_page_content_for_errors(doc.page_content)
             if page_errors:
+                breakpoint()
                 print(f"[HtmlLoader] Error loading {url}: {page_errors}")
             else:
                 # If using jina.ai, also fetch html content if file is not a pdf
@@ -530,23 +532,42 @@ def add_doc_to_redis(r, doc):
     r.hset("climate-rag::source:" + doc_dict["source"], mapping=doc_dict)
 
 
-def add_urls_to_db_chrome(
+async def add_urls_to_db_chrome(
     urls: List[str], db, headless=True, table_augmenter=None, document_prefix=""
 ) -> List[Document]:
-    from chromium import AsyncChromiumLoader
+    from langchain_community.document_loaders import AsyncChromiumLoader
+    from langchain_community.document_loaders import AsyncHtmlLoader
     from langchain_community.document_transformers import Html2TextTransformer
+    import asyncio
+    from chromium import user_agents, Rotator
 
-    # import nest_asyncio
-
-    # nest_asyncio.apply()
+    user_agent = Rotator(user_agents)
+    default_header_template = {
+        "User-Agent": str(user_agent.get()),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*"
+        ";q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer": "https://www.google.com/",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
 
     # Filter urls that are already in the database
     filtered_urls = [
         url for url in urls if len(r.keys("climate-rag::source:" + url)) == 0
     ]
     print("Adding to database: ", filtered_urls)
-    loader = AsyncChromiumLoader(urls=filtered_urls, headless=headless)
-    docs = loader.load()
+    # Load document with
+    html_loader = AsyncHtmlLoader(filtered_urls, header_template=default_header_template)
+    docs_html = html_loader.aload()
+    original_chromium_loader = AsyncChromiumLoader(urls=filtered_urls, headless=headless, user_agent=str(user_agent.get()))
+    docs_original_chromium = original_chromium_loader.aload()
+
+
+    docs = await asyncio.gather(docs_html, docs_original_chromium)
+    docs = list(map(lambda x: x[0] if len(x[0].page_content) > len(x[1].page_content) else x[1], zip(*docs)))
+
     # Cache raw html in redis
     for doc in docs:
         doc.metadata["raw_html"] = doc.page_content
@@ -1032,7 +1053,7 @@ def upload_documents(
 
 
 def extract_metadata_from_source_document(source_text) -> SourceMetadata:
-    from llms import get_chatbot
+    from llms import get_chatbot, get_max_token_length
     from prompts import metadata_extractor_prompt
     from langchain_core.output_parsers import PydanticOutputParser
     import tiktoken
@@ -1043,7 +1064,8 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
 
     parser = PydanticOutputParser(pydantic_object=SourceMetadata)
 
-    llm = get_chatbot("gpt-4o-mini")
+    llm = get_chatbot("gemini-2.0-flash-exp")
+    max_token_length = get_max_token_length("gemini-2.0-flash-exp")
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -1058,7 +1080,7 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
 
     # The maximum token length for GPT-4o-mini is 128000 tokens
     # Reduce the length of the text to fit within the token limit and speed things up
-    source_text = source_text[: int(40_000 / total_token_length * len(source_text))]
+    source_text = source_text[: int(max_token_length / total_token_length * len(source_text))]
 
     metadata = extract_chain.invoke({"raw_text": source_text})
 
@@ -1152,7 +1174,7 @@ def generate_additional_table_context(table: str) -> str:
     from langchain_core.output_parsers import StrOutputParser
     from llms import get_chatbot
 
-    llm = get_chatbot("gemini-1.5-flash")
+    llm = get_chatbot("gemini-2.0-flash-exp")
 
     prompt = ChatPromptTemplate.from_messages(
         [("system", table_augmentation_prompt), ("human", table)]

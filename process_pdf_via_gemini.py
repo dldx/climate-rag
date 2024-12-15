@@ -19,7 +19,8 @@ def process_pdf_via_gemini(
 
     Args:
         pdf_path (str): The path to the PDF file to process.
-        llm (str): The language model to use. Options are "gemini-1.5-pro", "gemini-1.5-flash".
+        document_prefix (str): String to prefix every output with
+
 
     Returns:
         PDFMetadata: The extracted metadata from the PDF.
@@ -37,7 +38,7 @@ def process_pdf_via_gemini(
     from prompts import pdf_metadata_extractor_prompt, convert_to_md_prompt
     from helpers import bin_list_into_chunks
 
-    llm = get_chatbot("gemini-1.5-flash")
+    llm = get_chatbot("gemini-2.0-flash-exp")
     # First extract the metadata from the PDF
     parser = PydanticOutputParser(pydantic_object=PDFMetadata)
     # If pdf_path is a url, download the file and read the contents
@@ -97,7 +98,7 @@ def process_pdf_via_gemini(
             ),
         ],
     )
-    llm = get_chatbot("gemini-1.5-flash", max_tokens=8192)
+    llm = get_chatbot("gemini-2.0-flash-exp", max_tokens=8192)
     convert_to_md_chain = convert_prompt | llm
     previous_outputs = []
     num_chunks = pdf_metadata.num_pages // 3 + 1

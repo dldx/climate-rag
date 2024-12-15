@@ -7,7 +7,7 @@ load_dotenv()
 
 def get_chatbot(
     llm: Literal[
-        "gemini-1.5-pro", "gemini-1.5-flash", "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude", "llama-3.1"
+        "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash", "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude", "llama-3.1"
     ] = "claude",
     **kwargs
 ):
@@ -35,7 +35,7 @@ def get_chatbot(
             top_p=0.7,
             max_tokens=4096,
         )
-    elif llm in ["gemini-1.5-pro", "gemini-1.5-flash"]:
+    elif llm in ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-exp"]:
         from langchain_google_vertexai import ChatVertexAI
         # The GOOGLE_PROJECT_ID environment variable must be set
         if "GOOGLE_PROJECT_ID" not in os.environ or not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
@@ -62,8 +62,9 @@ def get_chatbot(
 def get_max_token_length(llm: str) -> int:
     if llm == "gpt-4o":
         return 24_000
-    elif llm in ("gemini-1.5-flash", "gemini-1.5-pro"):
-        return 1_000_000
+    elif llm in ("gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"):
+        # Can handle 1 million tokens but takes too long to process so not worth it!
+        return 500_000
     else:
         return 24_000
 

@@ -99,7 +99,6 @@ def climate_chat(
 
     if getting_feedback:
         message = questions[-1]
-        print([message])
     else:
         questions.append(message)
     if rag_filter == "":
@@ -111,7 +110,7 @@ def climate_chat(
 
     for key, value in run_query(
         message,
-        llm="gpt-4o",
+        llm="gemini-2.0-flash-exp",
         mode="gui",
         rag_filter=rag_filter,
         improve_question=improve_question,

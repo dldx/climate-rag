@@ -62,7 +62,7 @@ def find_error_documents() -> List[dict]:
 
     return error_docs
 
-def find_short_documents(min_length: int = 600) -> List[dict]:
+def find_short_documents(min_length: int = 400) -> List[dict]:
     """
     Find documents shorter than specified length.
 
@@ -90,8 +90,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-length",
         type=int,
-        default=600,
-        help="Minimum document length (default: 600 characters)"
+        default=400,
+        help="Minimum document length (default: 400 characters)"
     )
     return parser.parse_args()
 
