@@ -114,7 +114,7 @@ def add_urls_to_db(
     db: Chroma,
     use_firecrawl: bool = False,
     use_gemini: bool = False,
-    table_augmenter: Optional[bool | Callable[[str], str]] = None,
+    table_augmenter: Optional[bool | Callable[[str], str]] = True,
     document_prefix: str = "",
 ) -> List[Document]:
     """Add a list of URLs to the database. Decide which loader to use based on the URL.
@@ -208,53 +208,58 @@ def add_urls_to_db(
                             document_prefix=document_prefix,
                         )
                         # Check if the URL has been successfully processed
-                        if url in list(
-                            map(
-                                lambda x: x.metadata["source"].replace(
-                                    "https://r.jina.ai/", ""
-                                ),
-                                jina_docs,
-                            )
-                        ):
+                        if url in list( map( lambda x: x.metadata["source"].replace( "https://r.jina.ai/", "" ), jina_docs, ) ):
                             docs += jina_docs
                         else:
-                            # Otherwise, download file using headed chrome
-                            temp_dir = tempfile.TemporaryDirectory()
-                            try:
-                                downloaded_urls = download_urls_in_headed_chrome(
-                                    urls=[url], download_dir=temp_dir.name
+                            # If file is stored on S3 server, we probably need to use Gemini to process it since jina.ai likely failed
+                            if os.environ["STATIC_PATH"] in url:
+                                # Try using Gemini to process the PDF
+                                uploaded_docs = add_document_to_db_via_gemini(
+                                    url,
+                                    url,
+                                    db,
+                                    table_augmenter=table_augmenter,
+                                    document_prefix=document_prefix,
                                 )
-                                # Then upload the downloaded file to the database
-                                if len(downloaded_urls) > 0:
-                                    uploaded_docs = upload_documents(
-                                        files=[downloaded_urls[0]["local_path"]], db=db, use_gemini=use_gemini, table_augmenter=table_augmenter, document_prefix=document_prefix
+                            else:
+                                # Otherwise, download file using headed chrome
+                                temp_dir = tempfile.TemporaryDirectory()
+                                try:
+                                    downloaded_urls = download_urls_in_headed_chrome(
+                                        urls=[url], download_dir=temp_dir.name
                                     )
-                                    if len(uploaded_docs) > 0:
-                                        # Change the source to the original URL
-                                        modify_document_source_urls(
-                                            uploaded_docs[0].metadata["source"],
-                                            url,
-                                            db,
-                                            r,
+                                    # Then upload the downloaded file to the database
+                                    if len(downloaded_urls) > 0:
+                                        # Upload documents to server and then process it
+                                        uploaded_docs = upload_documents(
+                                            files=[downloaded_urls[0]["local_path"]], db=db, use_gemini=use_gemini, table_augmenter=table_augmenter, document_prefix=document_prefix
                                         )
+                                        if len(uploaded_docs) > 0:
+                                            # Change the source to the original URL
+                                            modify_document_source_urls(
+                                                uploaded_docs[0].metadata["source"],
+                                                url,
+                                                db,
+                                                r,
+                                            )
+                                        else:
+                                            # Try using Gemini to process the PDF
+                                            uploaded_docs = add_document_to_db_via_gemini(
+                                                downloaded_urls[0]["local_path"],
+                                                url,
+                                                db,
+                                                table_augmenter=table_augmenter,
+                                                document_prefix=document_prefix,
+                                            )
                                     else:
-                                        # Try using Gemini to process the PDF
-                                        uploaded_docs = add_document_to_db_via_gemini(
-                                            downloaded_urls[0]["local_path"],
-                                            url,
-                                            db,
-                                            table_augmenter=table_augmenter,
-                                            document_prefix=document_prefix,
+                                        raise Exception(
+                                            f"Failed to download file via Headed Chrome: {url}"
                                         )
-                                else:
-                                    raise Exception(
-                                        f"Failed to download file via Headed Chrome: {url}"
+                                except Exception as e:
+                                    error_hash = store_error_in_redis(
+                                        url, str(traceback.format_exc()), "headed_chrome"
                                     )
-                            except Exception as e:
-                                error_hash = store_error_in_redis(
-                                    url, str(traceback.format_exc()), "headed_chrome"
-                                )
-                                uploaded_docs = []
+                                    uploaded_docs = []
                             docs += uploaded_docs
                     else:
                         # use local chrome loader instead
@@ -332,7 +337,6 @@ def add_urls_to_db_html(
                 doc.metadata["loader"] = "html"
             page_errors = check_page_content_for_errors(doc.page_content)
             if page_errors:
-                breakpoint()
                 print(f"[HtmlLoader] Error loading {url}: {page_errors}")
             else:
                 # If using jina.ai, also fetch html content if file is not a pdf

@@ -358,7 +358,6 @@ footer {
             with gr.Column(scale=1):
                 new_file = gr.File(
                     label="Upload documents",
-                    file_types=["pdf", "PDF", "md", "MD"],
                     file_count="multiple",
                     type="filepath",
                 )
