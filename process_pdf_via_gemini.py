@@ -30,6 +30,8 @@ def process_pdf_via_gemini(
     from langchain_core.prompts import ChatPromptTemplate
     from langchain_core.exceptions import OutputParserException
     import requests
+    from pathlib import Path
+    from urllib.parse import urlparse
     import mimetypes
 
     from langchain_core.prompts import PromptTemplate
@@ -42,9 +44,11 @@ def process_pdf_via_gemini(
     # First extract the metadata from the PDF
     parser = PydanticOutputParser(pydantic_object=PDFMetadata)
     # If pdf_path is a url, download the file and read the contents
-    if pdf_path.startswith("http"):
-        response = requests.get(pdf_path)
-        mime_type = response.headers["content-type"]
+    if str(pdf_path).startswith("http"):
+        response = requests.get(str(pdf_path))
+        # Guess mime_type from file extension as a fallback option if not returned by get request
+        filename = Path(urlparse(str(pdf_path)).path).name
+        mime_type: str | None = response.headers.get("content-type", mimetypes.guess_type(filename)[0])
         pdf_data = base64.b64encode(response.content).decode("utf8")
         # Add the source URL to the document prefix
         document_prefix += f"\n\nSource URL: {pdf_path}\n"
@@ -98,7 +102,7 @@ def process_pdf_via_gemini(
             ),
         ],
     )
-    llm = get_chatbot("gemini-2.0-flash-exp", max_tokens=8192)
+    llm = get_chatbot("gemini-1.5-flash", max_tokens=8192)
     convert_to_md_chain = convert_prompt | llm
     previous_outputs = []
     num_chunks = pdf_metadata.num_pages // 3 + 1
