@@ -129,9 +129,7 @@ def climate_chat(
         if key == "improve_question":
             if improve_question:
                 yield f"""**Improved question:** {value["question"]}""" + (
-                    f"""
-
-                **Better question (en):** {value["question_en"]}"""
+                    f"""\n**Better question (en):** {value["question_en"]}"""
                     if language != "en"
                     else ""
                 ), questions, answers
@@ -253,6 +251,7 @@ footer {
                     choices=language_choices,
                     label="Language",
                     value="en",
+                    allow_custom_value=True,
                     filterable=True,
                 )
                 rag_filter_textbox = gr.Textbox(

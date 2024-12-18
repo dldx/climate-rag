@@ -146,7 +146,7 @@ def main():
         args.query_text[0] if type(args.query_text) == list else args.query_text
     )
 
-    if args.language == "vi":
+    if args.language in ("vi", "th"):
         if args.rerank is None:
             args.rerank = False
     else:
