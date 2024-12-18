@@ -9,7 +9,7 @@ from typing import List, Dict, Optional
 
 from redis.commands.search.query import Query
 
-from cache import r
+from cache import r, source_index_name
 from tools import (
     add_urls_to_db,
     delete_document_from_db,
@@ -48,7 +48,7 @@ def find_error_documents() -> List[dict]:
         sanitized_message = error_message.replace(":", "?").replace(",", "?").replace(".", "?")
 
         # Search for documents with error message
-        results = r.ft("idx:source").search(
+        results = r.ft(source_index_name).search(
             Query(f'@page_content: "{sanitized_message}"' """@page_length:[0 10000]""")
             .dialect(2)
             .return_fields("source")
@@ -72,7 +72,7 @@ def find_short_documents(min_length: int = 400) -> List[dict]:
     Returns:
         List of document records that are too short
     """
-    return r.ft("idx:source").search(
+    return r.ft(source_index_name).search(
         Query(f"@page_length:[0 {min_length}]")
         .dialect(2)
         .return_fields("source")

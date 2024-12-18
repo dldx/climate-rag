@@ -1,0 +1,15 @@
+language_choices = [
+    ("English", "en"),
+    ("Arabic", "ar"),
+    ("Chinese", "zh"),
+    ("German", "de"),
+    ("Indonesian", "id"),
+    ("Italian", "it"),
+    ("Japanese", "ja"),
+    ("Kazakh", "kk"),
+    ("Korean", "ko"),
+    ("Russian", "ru"),
+    ("Spanish", "es"),
+    ("Vietnamese", "vi"),
+    ("Tagalog", "tl"),
+]

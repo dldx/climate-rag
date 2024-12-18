@@ -479,27 +479,30 @@ def web_search(state: GraphState) -> GraphState:
         ]
     # Rank results by frequency in search results and rank in individual search results
     # Use average of combined rank and frequency rank to sort
-    ranked_search_results = (
-        pd.DataFrame(search_results)
-        .pipe(lambda df: df.join(df.value_counts("source"), on="source"))
-        .assign(final_rank=lambda x: x["rank"] - x["count"])
-        .groupby("source")
-        .agg({"final_rank": "mean", "doc": "first"})
-        .sort_values("final_rank")
-        .doc.tolist()
-    )
-    # Scale total number of results by number of queries
-    max_results_to_add = min((10 * num_queries), 30)
-    # Add web search results to documents
-    documents += ranked_search_results[:max_results_to_add]
+    if len(search_results) == 0:
+        print("No web search results found at all. Please check queries.")
+    else:
+        ranked_search_results = (
+            pd.DataFrame(search_results)
+            .pipe(lambda df: df.join(df.value_counts("source"), on="source"))
+            .assign(final_rank=lambda x: x["rank"] - x["count"])
+            .groupby("source")
+            .agg({"final_rank": "mean", "doc": "first"})
+            .sort_values("final_rank")
+            .doc.tolist()
+        )
+        # Scale total number of results by number of queries
+        max_results_to_add = min((10 * num_queries), 30)
+        # Add web search results to documents
+        documents += ranked_search_results[:max_results_to_add]
 
+
+        print(
+            f"""Identified {len(documents)} web search results: {
+            [doc.metadata["source"] for doc in documents if doc.metadata.get("web_search")]
+        }"""
+        )
     state["documents"] = documents
-
-    print(
-        f"""Identified {len(documents)} web search results: {
-        [doc.metadata["source"] for doc in documents if doc.metadata.get("web_search")]
-    }"""
-    )
 
     return {
         "documents": documents,

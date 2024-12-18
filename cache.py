@@ -38,27 +38,44 @@ source_schema = (
 )
 
 # Define the index name
-index_name = "idx:source"
+source_index_name = "idx:source"
 
 # Check if the index exists, and create it if it doesn't
-if not index_exists(r, index_name):
+if not index_exists(r, source_index_name):
     try:
         # Create the index
-        r.ft(index_name).create_index(
+        r.ft(source_index_name).create_index(
             source_schema,
             definition=IndexDefinition(prefix=["climate-rag::source:"], index_type=IndexType.HASH)
         )
-        print(f"Index '{index_name}' created successfully.")
+        print(f"Index '{source_index_name}' created successfully.")
     except ResponseError as e:
         print(f"Error creating index: {e}")
+
+## Create a chinese source index
+# Define the index name
+zh_source_index_name = "idx:source_zh"
+
+# Check if the index exists, and create it if it doesn't
+if not index_exists(r, zh_source_index_name):
+    try:
+        # Create the index
+        r.ft(zh_source_index_name).create_index(
+            source_schema,
+            definition=IndexDefinition(prefix=["climate-rag::source:"], index_type=IndexType.HASH, language="chinese")
+        )
+        print(f"Index '{zh_source_index_name}' created successfully.")
+    except ResponseError as e:
+        print(f"Error creating index: {e}")
+
 
 ## Create the answer index
 
 # Define the index name
-index_name = "idx:answer"
+answer_index_name = "idx:answer"
 
 # Define the index schema
-schema = (
+answer_schema = (
     TextField("question"),
     TextField("answer"),
     NumericField("date_added", sortable=True),
@@ -66,13 +83,13 @@ schema = (
 )
 
 # Check if the index exists, and create it if it doesn't
-if not index_exists(r, index_name):
+if not index_exists(r, answer_index_name):
     try:
         # Create the index
-        r.ft(index_name).create_index(
+        r.ft(answer_index_name).create_index(
             answer_schema,
             definition=IndexDefinition(prefix=["climate-rag::answer:"], index_type=IndexType.HASH)
         )
-        print(f"Index '{index_name}' created successfully.")
+        print(f"Index '{answer_index_name}' created successfully.")
     except ResponseError as e:
         print(f"Error creating index: {e}")

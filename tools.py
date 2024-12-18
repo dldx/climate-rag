@@ -29,7 +29,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 import datetime
 
-from cache import r
+from cache import r, source_index_name, zh_source_index_name
 from helpers import (
     clean_up_metadata_object,
     clean_urls,
@@ -614,7 +614,7 @@ def delete_document_from_db(source_uri: str, db, r) -> bool:
     from redis.commands.search.query import Query
 
     # Find original key using redis FT.SEARCH
-    ids = r.ft("idx:source").search(
+    ids = r.ft(source_index_name).search(
         Query(f'@source:"{source_uri}"').dialect(2).return_fields("id")
     )
     if len(ids.docs) == 0:
@@ -717,10 +717,16 @@ def get_sources_based_on_filter(
     try:
         source_list = [
             doc.id.replace("climate-rag::source:", "")
-            for doc in r.ft("idx:source")
+            for doc in r.ft(source_index_name)
+            .search(Query(rag_filter).dialect(2).paging(0, limit).timeout(5000))
+            .docs
+        ] + [
+            doc.id.replace("climate-rag::source:", "")
+            for doc in r.ft(zh_source_index_name)
             .search(Query(rag_filter).dialect(2).paging(0, limit).timeout(5000))
             .docs
         ]
+        source_list = list(set(source_list))
     except ResponseError:
         print("Redis error:", str(traceback.format_exc()))
         source_list = []

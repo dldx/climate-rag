@@ -15,6 +15,7 @@ from langchain_core.documents import Document
 from gradio_log import Log
 from ulid import ULID
 import sys
+from constants import language_choices
 
 sys.settrace(None)
 
@@ -249,21 +250,7 @@ footer {
                     maximum=15,
                 )
                 language_dropdown = gr.Dropdown(
-                    choices=[
-                        ("English", "en"),
-                        ("Arabic", "ar"),
-                        ("Chinese", "zh"),
-                        ("German", "de"),
-                        ("Indonesian", "id"),
-                        ("Italian", "it"),
-                        ("Japanese", "ja"),
-                        ("Kazakh", "kk"),
-                        ("Korean", "ko"),
-                        ("Russian", "ru"),
-                        ("Spanish", "es"),
-                        ("Vietnamese", "vi"),
-                        ("Tagalog", "tl"),
-                    ],
+                    choices=language_choices,
                     label="Language",
                     value="en",
                     filterable=True,

@@ -10,6 +10,7 @@ from helpers import clean_urls
 from tools import format_docs, get_sources_based_on_filter, get_vector_store
 import langcodes
 from cache import r
+from constants import language_choices
 
 # os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
@@ -77,7 +78,7 @@ def main():
     parser.add_argument(
         "--language",
         type=str,
-        help="The language to query in. One of 'en', 'zh', 'vi'",
+        help=f"The language to query in. Any two letter language code or name will work. Eg. {' '.join([f'{name} ({code})' for name, code in language_choices])}",
         default="en",
     )
 
@@ -345,7 +346,7 @@ def get_all_documents_as_df(db) -> pd.DataFrame:
 def run_query(
     question: str,
     llm: Literal[
-        "gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude", "llama-3.1", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"
+        "gpt-4o", "gpt-4o-mini", "mistral", "claude", "llama-3.1", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"
     ] = "claude",
     rag_filter: Optional[str] = None,
     improve_question: Optional[bool] = True,
@@ -365,6 +366,11 @@ def run_query(
 
     if len(question) < 5:
         return "error", {"error": "Please provide a more complete question."}
+
+    if len(language) > 2:
+        # Convert language name to langcode
+        import langcodes
+        language = langcodes.find(language).language
 
     # Run
     inputs = {
