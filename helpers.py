@@ -184,7 +184,20 @@ def humanize_unix_date(date):
                 )
             )
 
-def get_previous_queries(r, query_filter: str = "*", limit: int = 30, additional_fields=[]) -> pd.DataFrame:
+def get_previous_queries(r, query_filter: str = "*", limit: int = 30, page_no: int = 0, additional_fields=[]) -> pd.DataFrame:
+    """
+    Get the previous queries from the Redis index.
+
+    Args:
+        r: Redis connection
+        query_filter: The query filter to use
+        limit: The number of results to return per page
+        page_no: The page number of results to return
+        additional_fields: Additional fields to return.
+
+    Returns:
+        pd.DataFrame: A DataFrame of the previous queries
+    """
     from redis.commands.search.query import Query
     from redis.exceptions import ResponseError
     try:
@@ -196,7 +209,7 @@ def get_previous_queries(r, query_filter: str = "*", limit: int = 30, additional
                     .search(
                         Query(query_filter).return_fields(
                             *["date_added", "question", "answer", "pdf_uri", "docx_uri"] + additional_fields
-                        ).sort_by("date_added", asc=False).paging(0, limit)
+                        ).sort_by("date_added", asc=False).paging((page_no -1)*limit, limit + (page_no - 1)*limit)
                     )
                     .docs
                 ]

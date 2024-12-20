@@ -1,7 +1,8 @@
 # api.py
-from typing import List, Optional
+import traceback
+from typing import Annotated, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -24,6 +25,7 @@ import gradio as gr
 from webapp import demo
 import logging
 from pymarkdown.api import PyMarkdownApi
+from urllib.parse import urlencode
 
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 
@@ -39,6 +41,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 templates = Jinja2Templates(directory=".")
+templates.env.filters['urlencode'] = lambda x: urlencode(x) if x else ''
 
 
 class SourceMetadata(BaseModel):
@@ -83,6 +86,7 @@ def get_answers(
     limit: int = Query(
         default=10, ge=1, le=100, description="Limit the number of results"
     ),
+    page_no: int = Query(default=1, description="Which page number of results to get"),
     include_metadata: bool = Query(
         default=False, description="Include document metadata"
     ),
@@ -94,6 +98,7 @@ def get_answers(
         q: (Optional) Search term to match against the question.
         source: (Optional) Search term to filter by source.
         limit: (Optional) Maximum number of results to return.
+        page_no: (Optional) Page number of results to return.
         include_metadata: (Optional) Flag to include metadata in the response
 
     Returns:
@@ -106,7 +111,7 @@ def get_answers(
 
     # Get dataframe of previous queries
     df = get_previous_queries(
-        r, query_filter=q, limit=limit, additional_fields=["sources"]
+        r, query_filter=q, limit=limit, page_no=page_no, additional_fields=["sources"]
     )
     if include_metadata:
         df.sources = df.sources.apply(lambda x: map(_get_source_metadata, x))
@@ -162,8 +167,14 @@ def get_answer_by_id(
     )
 
 
-@app.get("/answers/{qa_id}/markdown", response_class=HTMLResponse)
-def get_answer_markdown(qa_id: str, include_metadata: bool = True):
+@app.get("/answers/{qa_id}/html", response_class=HTMLResponse)
+def get_answer_markdown(
+    request: Request,
+    qa_id: str,
+    include_metadata: bool = True,
+    hx_request: Annotated[bool, Header()] = None,
+    hx_boosted: Annotated[bool, Header()] = None,
+):
     """
     Retrieve a specific answer by its ID and return a markdown response.
 
@@ -177,26 +188,7 @@ def get_answer_markdown(qa_id: str, include_metadata: bool = True):
 
     answer = get_answer_by_id(qa_id=qa_id, include_metadata=include_metadata)
     # Convert markdown to html
-    html_content = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="light dark">
-    <link
-  rel="stylesheet"
-  href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
->
-    <title>Climate RAG Search</title>
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <style>
-        body { font-family: sans-serif; }
-    </style>
-</head>
-<body>
-    <main class="container">
-"""
+    html_content = ""
     sources_str = ""
     for source in answer.sources:
         sources_str += f"""
@@ -204,28 +196,31 @@ def get_answer_markdown(qa_id: str, include_metadata: bool = True):
         </li>
         """
     html_content += f"""
-    <article>
-        <header><h2><a href='/answers/{answer.qa_id}/markdown'>{answer.question}</a></h2></header>
+    <article class="container-fluid" style="margin: 2rem; width: 95%;">
+        <header><h1><a href='/answers/{answer.qa_id}/html'>{answer.question}</a></h1></header>
         {mistune.html(PyMarkdownApi().fix_string(answer.answer).fixed_file)}
         <h6>Sources:</h6>
             <ul>{sources_str}</ul>
             <footer>{answer.date_added_ts}</footer>
             </article>
 """
-    html_content += """
-    </main>
-</body>
-</html>
-"""
-    return HTMLResponse(content=html_content)
+    if hx_request and hx_boosted:
+        return html_content
+    else:
+        return templates.TemplateResponse(
+                "static/index.html", {"request": request, "html_content": html_content}
+            )
 
 
-@app.get("/answers_html", response_class=HTMLResponse)
-def get_answers_html(
+@app.get("/search", response_class=HTMLResponse)
+def get_search_results(
+    request: Request,
+    hx_request: Annotated[str | None, Header()] = None,
     q: Optional[str] = Query(default=None, description="Search for questions"),
     limit: int = Query(
-        default=30, ge=1, le=100, description="Limit the number of results"
+        default=10, ge=1, le=100, description="Limit the number of results per page"
     ),
+    page_no: int = Query(default=1, description="Which page number of results to get"),
     include_metadata: bool = Query(
         default=False, description="Include document metadata"
     ),
@@ -237,6 +232,7 @@ def get_answers_html(
         q: (Optional) Search term to match against the question.
         source: (Optional) Search term to filter by source.
         limit: (Optional) Maximum number of results to return.
+        page_no: (Optional) Page number of results to return.
         include_metadata: (Optional) Flag to include metadata in the response
 
     Returns:
@@ -244,36 +240,44 @@ def get_answers_html(
     """
     try:
         answers = get_answers(
-            q=q, limit=limit, include_metadata=include_metadata
+            q=q, limit=limit, page_no=page_no, include_metadata=include_metadata
         ).results
-        html_content = """"""
-        for answer in answers:
+        n_answers = len(answers)
+        html_content = ''
+        for i_answer, answer in enumerate(answers):
             sources_str = ""
             for source in answer.sources:
                 sources_str += f"""
                 <li>{source.title + "  |" if source.title else ""} <a href='{source.source}'>{source.source}</a>
                 </li>
                """
+            if (i_answer + 1) < n_answers:
+                html_content += f"""<div class="container"><article
+                >"""
+            else:
+                html_content += f"""
+            <div class="container"><article hx-get="/search?q={q}&page_no={page_no+1}&limit={limit}&include_metadata={include_metadata}"
+            hx-trigger="revealed"
+    hx-swap="afterend"
+    hx-indicator="#loading"
+            >"""
+
             html_content += f"""
-            <article>
-                <header><h2><a href='/answers/{answer.qa_id}/markdown'>{answer.question}</a></h2></header>
+                <header><h2><a hx-boost='true' hx-target="#results" hx-swap="innerHTML" href='/answers/{answer.qa_id}/html?q={q}&'>{answer.question}</a></h2></header>
         {mistune.html(PyMarkdownApi().fix_string(answer.answer).fixed_file)}
         <h6>Sources:</h6>
                  <ul>{sources_str}</ul>
                  <footer>{answer.date_added_ts}</footer>
-                 </article>
+                 </article></div>
         """
-        return HTMLResponse(content=html_content)
+        if hx_request:
+            return html_content
+        return templates.TemplateResponse(
+            "static/index.html", {"request": request, "html_content": html_content}
+        )
     except Exception as e:
+        logging.error(f"Error querying Redis: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error querying Redis: {e}")
-
-
-@app.get("/search", response_class=HTMLResponse)
-async def homepage(request: Request):
-    """
-    Serves the index.html file as the homepage.
-    """
-    return templates.TemplateResponse("static/index.html", {"request": request})
 
 
 app = gr.mount_gradio_app(app, demo, path="/")
