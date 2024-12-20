@@ -29,7 +29,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 import datetime
 
-from cache import r, source_index_name, zh_source_index_name
+from cache import r, source_index_name, zh_source_index_name, ja_source_index_name
 from helpers import (
     clean_up_metadata_object,
     clean_urls,
@@ -723,6 +723,11 @@ def get_sources_based_on_filter(
         ] + [
             doc.id.replace("climate-rag::source:", "")
             for doc in r.ft(zh_source_index_name)
+            .search(Query(rag_filter).dialect(2).paging(0, limit).timeout(5000))
+            .docs
+        ] + [
+            doc.id.replace("climate-rag::source:", "")
+            for doc in r.ft(ja_source_index_name)
             .search(Query(rag_filter).dialect(2).paging(0, limit).timeout(5000))
             .docs
         ]

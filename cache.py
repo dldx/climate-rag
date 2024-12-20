@@ -68,6 +68,22 @@ if not index_exists(r, zh_source_index_name):
     except ResponseError as e:
         print(f"Error creating index: {e}")
 
+## Create a japanese source index
+# Define the index name
+ja_source_index_name = "idx:source_zh"
+
+# Check if the index exists, and create it if it doesn't
+if not index_exists(r, ja_source_index_name):
+    try:
+        # Create the index
+        r.ft(ja_source_index_name).create_index(
+            source_schema,
+            definition=IndexDefinition(prefix=["climate-rag::source:"], index_type=IndexType.HASH, language="japanese")
+        )
+        print(f"Index '{ja_source_index_name}' created successfully.")
+    except ResponseError as e:
+        print(f"Error creating index: {e}")
+
 
 ## Create the answer index
 

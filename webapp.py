@@ -271,6 +271,7 @@ footer {
                 chat_header = gr.Markdown("## Chat", height=100)
                 chatbot = gr.Chatbot(
                     elem_id="chatbot",
+                    type="tuples",
                     scale=4,
                     show_label=False,
                     latex_delimiters=[
@@ -290,13 +291,13 @@ footer {
                     )
                 with gr.Row():
                     stop_button = gr.Button(value="Stop", variant="stop", scale=5)
-                    download_word_button = gr.DownloadButton(
-                        icon="static/ri--file-word-line.svg",
-                        label="Download DOCX",
-                        size="sm",
-                        scale=1,
-                        visible=False,
-                    )
+                    # download_word_button = gr.DownloadButton(
+                    #     icon="static/ri--file-word-line.svg",
+                    #     label="Download DOCX",
+                    #     size="sm",
+                    #     scale=1,
+                    #     visible=False,
+                    # )
                     download_pdf_button = gr.DownloadButton(
                         icon="static/ri--file-pdf-line.svg",
                         label="Download PDF",
@@ -334,7 +335,7 @@ footer {
                     gr.HTML(visible=False),
                 ],
                 label="History",
-                headers=["Date", "Question", "Answer", "PDF", "DOCX"],
+                headers=["Date", "Question", "Answer", "PDF"],
             )
 
     with gr.Tab("Documents", elem_classes=["h-full"]):
@@ -443,9 +444,9 @@ footer {
         )
         for bot_message, questions, answers in bot_messages:
             chat_history.append([None, bot_message])
-            yield chat_history, chat_history, questions, answers, chat_id, *download_latest_answer(
+            yield chat_history, chat_history, questions, answers, chat_id, download_latest_answer(
                 questions, answers
-            ), f"## Chat\n### {questions[-1]}"
+            )[1], f"## Chat\n### {questions[-1]}"
 
     converse_event = chat_input.submit(
         fn=user,
@@ -474,7 +475,7 @@ footer {
             questions_state,
             answers_state,
             chat_id_state,
-            download_word_button,
+            # download_word_button,
             download_pdf_button,
             chat_header,
         ],
@@ -540,25 +541,26 @@ footer {
         # Get dataframe of previous queries
         df = get_previous_queries(r, query_filter=query_filter, limit=100).set_index(
             "qa_id"
-        )[["date_added_ts", "question", "answer", "pdf_uri", "docx_uri"]]
+        )[["date_added_ts", "question", "answer", "pdf_uri"]]
+        df.question = '<a target="_blank" href="/answers/' + df.index + '/markdown" >' + df.question + '</a>'
         # Deal with missing PDF and DOCX URIs
         missing_pdfs = df.loc[lambda df: df.isnull().any(axis=1)].index.tolist()
         for qa_id in missing_pdfs:
-            df.loc[qa_id, "pdf_uri"], df.loc[qa_id, "docx_uri"] = render_qa_pdfs(qa_id)
+            df.loc[qa_id, "pdf_uri"] = render_qa_pdfs(qa_id)[0]
         # Sanitize URLs
         df.pdf_uri = df.pdf_uri.apply(sanitize_url)
-        df.docx_uri = df.docx_uri.apply(sanitize_url)
+        # df.docx_uri = df.docx_uri.apply(sanitize_url)
 
         df.pdf_uri = (
             "<a target='_blank' href='"
             + df.pdf_uri.astype(str).fillna("")
             + "'><img src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogPHBhdGggZD0iTTUgNGgxMHY0aDR2MTJINXpNMy45OTkgMkEuOTk1Ljk5NSAwIDAgMCAzIDIuOTkydjE4LjAxNmExIDEgMCAwIDAgLjk5My45OTJoMTYuMDE0QTEgMSAwIDAgMCAyMSAyMC45OTJWN2wtNS01em02LjUgNS41YzAgMS41NzctLjQ1NSAzLjQzNy0xLjIyNCA1LjE1M2MtLjc3MiAxLjcyMy0xLjgxNCAzLjE5Ny0yLjkgNC4wNjZsMS4xOCAxLjYxM2MyLjkyNy0xLjk1MiA2LjE2OC0zLjI5IDkuMzA0LTIuODQybC40NTctMS45MzlDMTQuNjQ0IDEyLjY2MSAxMi41IDkuOTkgMTIuNSA3LjV6bS42IDUuOTcyYy4yNjgtLjU5Ny41MDUtMS4yMTYuNzA1LTEuODQzYTkuNyA5LjcgMCAwIDAgMS43MDYgMS45NjZjLS45ODIuMTc2LTEuOTQ0LjQ2NS0yLjg3NS44MzNxLjI0OC0uNDcxLjQ2NS0uOTU2IiBmaWxsPSIjZmZmIiBzdHJva2U9IiMwMDAiIHN0cm9rZS13aWR0aD0iLjIiLz4KPC9zdmc+Cg==' alt='PDF'></img></a>"
         )
-        df.docx_uri = (
-            "<a target='_blank' href='"
-            + df.docx_uri.astype(str).fillna("")
-            + "'><img src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogPHBhdGggZD0iTTE2IDh2OGgtMmwtMi0ybC0yIDJIOFY4aDJ2NWwyLTJsMiAyVjhoMVY0SDV2MTZoMTRWOHpNMyAyLjk5MkMzIDIuNDQ0IDMuNDQ3IDIgMy45OTkgMkgxNmw1IDV2MTMuOTkzQTEgMSAwIDAgMSAyMC4wMDcgMjJIMy45OTNBMSAxIDAgMCAxIDMgMjEuMDA4eiIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9Ii4yIi8+Cjwvc3ZnPg==' alt='DOCX'></img></a>"
-        )
+        # df.docx_uri = (
+        #     "<a target='_blank' href='"
+        #     + df.docx_uri.astype(str).fillna("")
+        #     + "'><img src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogPHBhdGggZD0iTTE2IDh2OGgtMmwtMi0ybC0yIDJIOFY4aDJ2NWwyLTJsMiAyVjhoMVY0SDV2MTZoMTRWOHpNMyAyLjk5MkMzIDIuNDQ0IDMuNDQ3IDIgMy45OTkgMkgxNmw1IDV2MTMuOTkzQTEgMSAwIDAgMSAyMC4wMDcgMjJIMy45OTNBMSAxIDAgMCAxIDMgMjEuMDA4eiIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9Ii4yIi8+Cjwvc3ZnPg==' alt='DOCX'></img></a>"
+        # )
 
         return gr.Dataset(samples=df.to_numpy().tolist())
 
@@ -676,4 +678,4 @@ footer {
 
 
 demo.queue(default_concurrency_limit=None)
-demo.launch(inbrowser=False, show_api=False, max_threads=80)
+# demo.launch(inbrowser=False, show_api=False, max_threads=80)

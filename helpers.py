@@ -1,6 +1,6 @@
 import logging
 import shutil
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import msgspec
 from pathvalidate import sanitize_filename as _sanitize_filename
 import os
@@ -9,6 +9,8 @@ import urllib.parse
 import re
 import pandas as pd
 from markdown_pdf import Section, MarkdownPdf
+import humanize
+import datetime
 
 from schemas import SourceMetadata
 
@@ -54,7 +56,7 @@ def upload_file(
         logging.error(e)
         return False
     return True
-def md_to_pdf(md_string: str, pdf_path: str) -> str:
+def md_to_pdf(md_string: str, pdf_path: str) -> str | None:
     """
     Convert a markdown string to a PDF file.
 
@@ -62,12 +64,17 @@ def md_to_pdf(md_string: str, pdf_path: str) -> str:
         md_string (str): The markdown string to convert
         pdf_path (str): The path to save the PDF file to
     """
-    # Create a new PDF document
-    pdf = MarkdownPdf(toc_level=2)
-    # Add a section to the PDF
-    pdf.add_section(Section(md_string))
-    # Write the PDF to disk
-    pdf.save(pdf_path)
+    import stopit
+    with stopit.ThreadingTimeout(5) as to_ctx_mgr:
+        # Create a new PDF document
+        pdf = MarkdownPdf(toc_level=2)
+        # Add a section to the PDF
+        pdf.add_section(Section(md_string))
+        # Write the PDF to disk
+        pdf.save(pdf_path)
+    if to_ctx_mgr.state == to_ctx_mgr.TIMED_OUT:
+        logging.error("PDF generation timed out")
+        return None
 
     return pdf_path
 
@@ -169,19 +176,17 @@ def compile_answer(generation: str, initial_question: str, sources: List[str | D
     )
 
     return answer
+def humanize_unix_date(date):
+    return humanize.naturaltime(
+                datetime.datetime.now(datetime.UTC)
+                - datetime.datetime.fromtimestamp(
+                    int(date), tz=datetime.UTC
+                )
+            )
 
-def get_previous_queries(r, query_filter: str = "*", limit: int = 30) -> pd.DataFrame:
-    import humanize
-    import datetime
+def get_previous_queries(r, query_filter: str = "*", limit: int = 30, additional_fields=[]) -> pd.DataFrame:
     from redis.commands.search.query import Query
     from redis.exceptions import ResponseError
-    def humanize_unix_date(date):
-        return humanize.naturaltime(
-                    datetime.datetime.now(datetime.UTC)
-                    - datetime.datetime.fromtimestamp(
-                        int(date), tz=datetime.UTC
-                    )
-                )
     try:
         previous_queries_df = (
             pd.DataFrame.from_records(
@@ -190,7 +195,7 @@ def get_previous_queries(r, query_filter: str = "*", limit: int = 30) -> pd.Data
                     for doc in r.ft("idx:answer")
                     .search(
                         Query(query_filter).return_fields(
-                            "date_added", "question", "answer", "pdf_uri", "docx_uri"
+                            *["date_added", "question", "answer", "pdf_uri", "docx_uri"] + additional_fields
                         ).sort_by("date_added", asc=False).paging(0, limit)
                     )
                     .docs
@@ -203,12 +208,21 @@ def get_previous_queries(r, query_filter: str = "*", limit: int = 30) -> pd.Data
             )
             .drop(columns=["payload", "id"])
         )
+        # If "sources" in additional_fields, convert it from json
+        if "sources" in additional_fields:
+            previous_queries_df["sources"] = previous_queries_df["sources"].apply(lambda x: clean_urls(
+                msgspec.json.decode(x) if x else [],
+                os.environ.get("STATIC_PATH", ""),
+            ))
+
+
+
     except (ResponseError, AttributeError):
-        previous_queries_df = pd.DataFrame(columns=["qa_id", "date_added", "date_added_ts", "question", "answer", "pdf_uri", "docx_uri"])
+        previous_queries_df = pd.DataFrame(columns=["qa_id", "date_added", "date_added_ts", "question", "answer", "pdf_uri", "docx_uri"] + additional_fields)
 
     return previous_queries_df
 
-def render_qa_pdfs(qa_id):
+def render_qa_pdfs(qa_id) -> Tuple[str, str]:
     from helpers import md_to_pdf, pdf_to_docx
     from cache import r
     filename = sanitize_filename(qa_id)
@@ -228,43 +242,50 @@ def render_qa_pdfs(qa_id):
         pdf_path = f"tmp/{filename}.pdf"
         docx_path = f"tmp/{filename}.docx"
 
-        md_to_pdf(answer, pdf_path)
-        pdf_to_docx(pdf_path, docx_path)
+        pdf_status = md_to_pdf(answer, pdf_path)
+        # If the PDF was generated successfully, continue
+        if pdf_status is not None:
+            pdf_to_docx(pdf_path, docx_path)
 
-        STATIC_PATH = os.environ.get("STATIC_PATH", "")
-        UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
-        USE_S3 = os.environ.get("USE_S3", False) == "True"
+            STATIC_PATH = os.environ.get("STATIC_PATH", "")
+            UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
+            USE_S3 = os.environ.get("USE_S3", False) == "True"
 
-        if (STATIC_PATH != "") and (UPLOAD_FILE_PATH != ""):
-            # Copy the files to the static path
-            os.makedirs(f"{UPLOAD_FILE_PATH}/outputs", exist_ok=True)
-            shutil.copy(pdf_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.pdf")
-            shutil.copy(docx_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.docx")
-            # Serve the files from the static path instead
-            pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
-            docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
-        elif (STATIC_PATH != "") and (USE_S3 == True):
-            # Upload the files to S3
-            if not upload_file(
-                file_name=pdf_path,
-                bucket=os.environ.get("S3_BUCKET", ""),
-                path="/outputs/",
-                object_name=f"{filename}.pdf",
-            ):
-                logging.error(f"Failed to upload {pdf_path} to S3")
-            if not upload_file(
-                file_name=docx_path,
-                bucket=os.environ.get("S3_BUCKET", ""),
-                path="/outputs/",
-                object_name=f"{filename}.docx",
-            ):
-                logging.error(f"Failed to upload {docx_path} to S3")
-            # Serve the files from S3
-            pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
-            docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
+            # Serve the files from the static path
+            if (STATIC_PATH != "") and (UPLOAD_FILE_PATH != ""):
+                # Copy the files to the static path
+                os.makedirs(f"{UPLOAD_FILE_PATH}/outputs", exist_ok=True)
+                shutil.copy(pdf_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.pdf")
+                # Serve the files from the static path instead
+                pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
+                shutil.copy(docx_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.docx")
+                docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
+            elif (STATIC_PATH != "") and (USE_S3 == True):
+                # Upload the files to S3
+                if not upload_file(
+                    file_name=pdf_path,
+                    bucket=os.environ.get("S3_BUCKET", ""),
+                    path="/outputs/",
+                    object_name=f"{filename}.pdf",
+                ):
+                    logging.error(f"Failed to upload {pdf_path} to S3")
+                # Serve the files from S3
+                pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
+                if not upload_file(
+                    file_name=docx_path,
+                    bucket=os.environ.get("S3_BUCKET", ""),
+                    path="/outputs/",
+                    object_name=f"{filename}.docx",
+                ):
+                    logging.error(f"Failed to upload {docx_path} to S3")
+                # Serve the files from S3
+                docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
+            else:
+                pdf_download_url = pdf_path
+                docx_download_url = docx_path
         else:
-            pdf_download_url = pdf_path
-            docx_download_url = docx_path
+            pdf_download_url = ""
+            docx_download_url = ""
 
         # Save PDF and DOCX locations to redis cache
         r.hset("climate-rag::answer:" + qa_id, "pdf_uri", pdf_download_url)

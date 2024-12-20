@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+>
+    <title>Climate RAG Search</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        body { font-family: sans-serif; }
+        .result { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <main class="container">
+    <h1>Search Climate RAG</h1>
+
+    <input type="text" name="q" placeholder="Search questions..."
+           hx-get="/answers_html"
+           hx-trigger="keyup changed delay:500ms"
+           hx-target="#results"
+           hx-indicator="#loading">
+    <img id="loading" class="htmx-indicator" src="/static/bars.svg">
+
+    <div id="results">
+      </div>
+    <div id="answer">
+        </div>
+    </main>
+</body>
+</html>
