@@ -68,7 +68,13 @@ def _get_source_metadata(source: str, use_llm: bool = False):
         metadata_fields=["title", "company_name", "publishing_date"],
         use_llm=use_llm,
     )
-    return SourceMetadata(source=source, **metadata)
+    return SourceMetadata(
+        source=clean_urls(
+            source,
+            os.environ.get("STATIC_PATH", ""),
+        )[0],
+        **metadata,
+    )
 
 
 @app.get("/answers", response_model=Answers)
@@ -133,10 +139,8 @@ def get_answer_by_id(
     if not answer:
         raise HTTPException(status_code=404, detail="Answer not found")
 
-    sources = clean_urls(
-        msgspec.json.decode(answer["sources"]) if answer.get("sources") else [],
-        os.environ.get("STATIC_PATH", ""),
-    )
+    sources = msgspec.json.decode(answer["sources"]) if answer.get("sources") else []
+
     if include_metadata:
         sources = [_get_source_metadata(source) for source in sources]
     else:
@@ -152,9 +156,9 @@ def get_answer_by_id(
             if answer.get("date_added")
             else None
         ),
-        date_added_ts=humanize_unix_date(answer["date_added"]
-        ) if answer.get("date_added")
-            else ""
+        date_added_ts=(
+            humanize_unix_date(answer["date_added"]) if answer.get("date_added") else ""
+        ),
     )
 
 
