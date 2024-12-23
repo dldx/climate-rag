@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
 
 from cache import r, answer_index_name
+from schemas import SourceMetadata
 from helpers import compile_answer, get_previous_queries, humanize_unix_date
 from tools import (
     get_sources_based_on_filter,
@@ -44,10 +45,12 @@ templates = Jinja2Templates(directory=".")
 templates.env.filters['urlencode'] = lambda x: urlencode(x) if x else ''
 
 
-class SourceMetadata(BaseModel):
+class SourceMetadataWithSource(SourceMetadata):
     source: str
-    title: Optional[str] = None
-    company_name: Optional[str] = None
+    key_entities: Optional[List[str]] = None
+    type_of_document: Optional[str] = None
+    keywords: Optional[List[str]] = None
+    self_published: Optional[bool] = None
     publishing_date: Optional[datetime] = None
 
 
@@ -55,7 +58,7 @@ class Answer(BaseModel):
     qa_id: str
     question: str
     answer: str
-    sources: List[SourceMetadata]
+    sources: List[SourceMetadataWithSource]
     date_added: datetime
     date_added_ts: Optional[str] = ""
 
@@ -71,7 +74,7 @@ def _get_source_metadata(source: str, use_llm: bool = False):
         metadata_fields=["title", "company_name", "publishing_date"],
         use_llm=use_llm,
     )
-    return SourceMetadata(
+    return SourceMetadataWithSource(
         source=clean_urls(
             source,
             os.environ.get("STATIC_PATH", ""),
@@ -117,7 +120,7 @@ def get_answers(
         df.sources = df.sources.apply(lambda x: map(_get_source_metadata, x))
     else:
         df.sources = df.sources.apply(
-            lambda x: map(lambda y: SourceMetadata(source=y), x)
+            lambda x: map(lambda y: SourceMetadataWithSource(source=y), x)
         )
     return Answers(results=df.to_dict("records"))
 
@@ -149,7 +152,7 @@ def get_answer_by_id(
     if include_metadata:
         sources = [_get_source_metadata(source) for source in sources]
     else:
-        sources = [SourceMetadata(source=source) for source in sources]
+        sources = [SourceMetadataWithSource(source=source) for source in sources]
 
     return Answer(
         qa_id=qa_id,

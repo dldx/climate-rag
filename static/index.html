@@ -13,6 +13,9 @@
     <title>Climate RAG Search</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <style>
+      :root {
+        --pico-font-size: 85%;
+      }
     </style>
   </head>
   <body>
@@ -32,7 +35,7 @@
             hx-trigger="input keyup changed delay:500ms, search"
             hx-target="#results"
             hx-indicator="#loading"
-            style="align-self: center; search-input; margin-top: var(--pico-spacing);"
+            style="align-self: center; margin-top: var(--pico-spacing);"
 
             >
         </form></div>
