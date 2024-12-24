@@ -372,7 +372,6 @@ def get_source_search_results(
     try:
         sources_results = get_sources(q=q, limit=limit, page_no=page_no).results
         n_sources = len(sources_results)
-        print(n_sources)
 
         html_content = ""
         for i_source, source in enumerate(sources_results):

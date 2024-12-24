@@ -720,17 +720,17 @@ def get_sources_based_on_filter(
         source_list = [
             doc.id.replace("climate-rag::source:", "")
             for doc in r.ft(source_index_name)
-            .search(Query(rag_filter).dialect(2).paging(0, limit).timeout(5000))
+            .search(Query(rag_filter).dialect(2).paging(max(0, (page_no -1))*limit, limit + max(0, (page_no - 1))*limit).timeout(5000))
             .docs
         ] + [
             doc.id.replace("climate-rag::source:", "")
             for doc in r.ft(zh_source_index_name)
-            .search(Query(rag_filter).dialect(2).paging(0, limit).timeout(5000))
+            .search(Query(rag_filter).dialect(2).paging(max(0, (page_no -1))*limit, limit + max(0, (page_no - 1))*limit).timeout(5000))
             .docs
         ] + [
             doc.id.replace("climate-rag::source:", "")
             for doc in r.ft(ja_source_index_name)
-            .search(Query(rag_filter).dialect(2).paging(0, limit).timeout(5000))
+            .search(Query(rag_filter).dialect(2).paging(max(0, (page_no -1))*limit, limit + max(0, (page_no - 1))*limit).timeout(5000))
             .docs
         ]
         source_list = list(set(source_list))
