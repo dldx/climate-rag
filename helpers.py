@@ -209,7 +209,7 @@ def get_previous_queries(r, query_filter: str = "*", limit: int = 30, page_no: i
                     .search(
                         Query(query_filter).return_fields(
                             *["date_added", "question", "answer", "pdf_uri", "docx_uri"] + additional_fields
-                        ).sort_by("date_added", asc=False).paging((page_no -1)*limit, limit + (page_no - 1)*limit)
+                        ).sort_by("date_added", asc=False).paging(max(0, (page_no -1))*limit, limit + max(0, (page_no - 1))*limit)
                     )
                     .docs
                 ]
@@ -231,6 +231,8 @@ def get_previous_queries(r, query_filter: str = "*", limit: int = 30, page_no: i
 
 
     except (ResponseError, AttributeError):
+        import traceback
+        print(traceback.format_exc())
         previous_queries_df = pd.DataFrame(columns=["qa_id", "date_added", "date_added_ts", "question", "answer", "pdf_uri", "docx_uri"] + additional_fields)
 
     return previous_queries_df

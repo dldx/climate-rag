@@ -1,4 +1,3 @@
-# api.py
 import traceback
 from typing import Annotated, List, Optional
 
@@ -9,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
 
-from cache import r, answer_index_name
+from cache import r, answer_index_name, source_index_name
 from schemas import SourceMetadata
 from helpers import compile_answer, get_previous_queries, humanize_unix_date
 from tools import (
@@ -18,14 +17,13 @@ from tools import (
     get_source_document_extra_metadata,
 )
 import os
-from redis.commands.search.query import Query as RedisQuery
 import msgspec
 import mistune
 from datetime import datetime, timezone
 import gradio as gr
 from webapp import demo
 import logging
-from pymarkdown.api import PyMarkdownApi
+from pymarkdown.api import PyMarkdownApi, PyMarkdownApiException
 from urllib.parse import urlencode
 
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
@@ -211,12 +209,12 @@ def get_answer_markdown(
         return html_content
     else:
         return templates.TemplateResponse(
-                "static/index.html", {"request": request, "html_content": html_content}
+                "static/qa.html", {"request": request, "html_content": html_content}
             )
 
 
-@app.get("/search", response_class=HTMLResponse)
-def get_search_results(
+@app.get("/search_qa", response_class=HTMLResponse)
+def get_answer_search_results(
     request: Request,
     hx_request: Annotated[str | None, Header()] = None,
     q: Optional[str] = Query(default=None, description="Search for questions"),
@@ -258,8 +256,15 @@ def get_search_results(
                 html_content += f"""<div class="container"><article
                 >"""
             else:
+                next_page_params={
+                    "q": q,
+                    "page_no": page_no + 1,
+                    "limit": limit,
+                    "include_metadata": include_metadata
+                }
+                next_page_url = f"/search_qa?{urlencode(next_page_params)}"
                 html_content += f"""
-            <div class="container"><article hx-get="/search?q={q}&page_no={page_no+1}&limit={limit}&include_metadata={include_metadata}"
+            <div class="container"><article hx-get="{next_page_url}"
             hx-trigger="revealed"
     hx-swap="afterend"
     hx-indicator="#loading"
@@ -276,12 +281,178 @@ def get_search_results(
         if hx_request:
             return html_content
         return templates.TemplateResponse(
-            "static/index.html", {"request": request, "html_content": html_content}
+            "static/qa.html", {"request": request, "html_content": html_content}
         )
     except Exception as e:
         logging.error(f"Error querying Redis: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error querying Redis: {e}")
 
+class Source(BaseModel):
+    source: str
+    page_content: str
+    date_added: datetime
+    date_added_ts: Optional[str] = ""
+    title: Optional[str] = None
+    company_name: Optional[str] = None
+    publishing_date: Optional[datetime] = None
+
+
+class Sources(BaseModel):
+    results: List[Source]
+
+
+@app.get("/sources", response_model=Sources)
+def get_sources(
+    q: Optional[str] = Query(default=None, description="Search for sources"),
+    limit: int = Query(
+        default=5, ge=1, le=100, description="Limit the number of results"
+    ),
+    page_no: int = Query(default=1, description="Which page number of results to get"),
+):
+
+    if q is None:
+        q = ""
+    if "@" not in q:
+        q = f"@source:({q})" #or @title, etc
+
+    sources = get_sources_based_on_filter(q, r, limit=limit, page_no=page_no)
+
+    results = []
+    for source_url in sources:
+       source_data = r.hgetall(f"climate-rag::source:{source_url}")
+       if source_data:  # Check if source_data exists
+            results.append(
+                Source(
+                    source=source_url,
+                    page_content=source_data["page_content"],
+                    date_added=(
+                        datetime.fromtimestamp(int(source_data["date_added"]), tz=timezone.utc)
+                        if source_data.get("date_added")
+                        else None
+                    ),
+                    date_added_ts=(
+                        humanize_unix_date(source_data["date_added"])
+                        if source_data.get("date_added")
+                        else ""
+                    ),
+                    title=source_data.get("title"),
+                    company_name=source_data.get("company_name"),
+                    publishing_date=(
+                        datetime.fromtimestamp(int(source_data["publishing_date"]), tz=timezone.utc)
+                        if source_data.get("publishing_date")
+                        else None
+                    ),
+                )
+            )
+
+
+    return Sources(results=results)
+
+@app.get("/search_sources", response_class=HTMLResponse)
+def get_source_search_results(
+    request: Request,
+    hx_request: Annotated[str | None, Header()] = None,
+    q: Optional[str] = Query(default=None, description="Search for sources"),
+    limit: int = Query(
+        default=5, ge=1, le=100, description="Limit the number of results per page"
+    ),
+    page_no: int = Query(default=1, description="Which page number of results to get"),
+):
+    """
+    Retrieve sources from Redis based on search terms.
+
+    Args:
+        q: (Optional) Search term to match against the source.
+        limit: (Optional) Maximum number of results to return.
+        page_no: (Optional) Page number of results to return.
+
+    Returns:
+         HTMLResponse: A rendered HTML string of the sources
+    """
+    try:
+        sources_results = get_sources(q=q, limit=limit, page_no=page_no).results
+        n_sources = len(sources_results)
+        print(n_sources)
+
+        html_content = ""
+        for i_source, source in enumerate(sources_results):
+            if (i_source + 1) < n_sources:
+                html_content += f"<div class='container'><article>"
+            else:
+                # HTMX magic for infinite scrolling
+                next_page_params = {
+                    "q": q,
+                    "page_no": page_no + 1,
+                    "limit": limit,
+                }
+                next_page_url = f"/search_sources?{urlencode(next_page_params)}"
+                html_content += f"""<div class="container">
+                <article hx-get="{next_page_url}"
+                        hx-trigger="revealed"
+                        hx-swap="afterend"
+                        hx-indicator="#loading">"""
+
+            publishing_date_str = source.publishing_date.strftime("%Y-%m-%d") if source.publishing_date else "Unknown"
+            # try:
+            #     source_md = PyMarkdownApi().fix_string(source.page_content).fixed_file
+            # except:
+            source_md = source.page_content
+            html_content += f"""
+                <header><h2><a href='{source.source}'>{source.title or source.source}</a></h2></header>
+                <p>Company: {source.company_name or "Unknown"}</p>
+                <p>Publishing Date: {publishing_date_str}</p>
+                <p>Date Added: {source.date_added_ts}</p>
+                <pre style="max-height: 100ch">{mistune.html(source_md) if source.page_content else ""}</pre>  </article></div>
+            """
+
+        if hx_request:
+            return html_content
+
+        return templates.TemplateResponse(
+            "static/sources.html", {"request": request, "html_content": html_content}
+        )
+
+    except Exception as e:
+        logging.error(f"Error querying Redis: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Error querying Redis: {e}")
+
+@app.get("/sources/{source}", response_model=Source)
+def get_source_by_id(source: str):
+    """
+    Retrieve a specific source by its ID.
+
+    Args:
+        source: The ID of the source to retrieve.
+
+    Returns:
+        dict: A dictionary representing the matching source, if found.
+        Raises HTTPException if not found.
+    """
+    source_data = r.hgetall(f"climate-rag::source:{source}")
+    if not source_data:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    return Source(
+        source=source,
+        page_content=source_data["page_content"],
+        date_added=(
+            datetime.fromtimestamp(int(source_data["date_added"]), tz=timezone.utc)
+            if source_data.get("date_added")
+            else None
+        ),
+        date_added_ts=(
+            humanize_unix_date(source_data["date_added"])
+            if source_data.get("date_added")
+            else ""
+        ),
+        title=source_data.get("title"),
+        company_name=source_data.get("company_name"),
+        publishing_date=(
+            datetime.fromtimestamp(int(source_data["publishing_date"]), tz=timezone.utc)
+            if source_data.get("publishing_date")
+            else None
+        ),
+    )
 
 app = gr.mount_gradio_app(app, demo, path="/")
 

@@ -653,7 +653,7 @@ def delete_document_from_db(source_uri: str, db, r) -> bool:
 
 
 def get_sources_based_on_filter(
-    rag_filter: str, r: Any, limit: int = 10_000
+    rag_filter: str, r: Any, limit: int = 10_000, page_no: int = 0
 ) -> List[str]:
     """
     Get all sources from redis based on a filter.
@@ -661,6 +661,8 @@ def get_sources_based_on_filter(
     Args:
         rag_filter: The filter to use.
         r: The redis connection.
+        limit (optional): Number of results to get on one page
+        page_no (optional): Page of results to get
 
     Returns:
         List[str]: A list of source URIs.

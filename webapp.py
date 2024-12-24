@@ -542,7 +542,7 @@ footer {
         df = get_previous_queries(r, query_filter=query_filter, limit=100).set_index(
             "qa_id"
         )[["date_added_ts", "question", "answer", "pdf_uri"]]
-        df.question = '<a target="_blank" href="/answers/' + df.index + '/markdown" >' + df.question + '</a>'
+        df.question = '<a target="_blank" href="/answers/' + df.index + '/html" >' + df.question + '</a>'
         # Deal with missing PDF and DOCX URIs
         missing_pdfs = df.loc[lambda df: df.isnull().any(axis=1)].index.tolist()
         for qa_id in missing_pdfs:
