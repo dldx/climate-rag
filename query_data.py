@@ -1,16 +1,18 @@
 import argparse
-from graph import create_graph
-import redis
 import os
+import sys
 from typing import Iterator, List, Literal, Optional, Tuple
-from dotenv import load_dotenv
+
 import pandas as pd
+import redis
+from dotenv import load_dotenv
+
 from agents import GraphState
-from helpers import clean_urls
-from tools import format_docs, get_sources_based_on_filter, get_vector_store
-import langcodes
 from cache import r
 from constants import language_choices
+from graph import create_graph
+from helpers import clean_urls
+from tools import format_docs, get_sources_based_on_filter, get_vector_store
 
 # os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
@@ -18,17 +20,15 @@ from constants import language_choices
 load_dotenv()  # take environment variables from .env.
 app = create_graph()
 
-import sys
 
 # Different display functions for Jupyter and terminal
 if "ipykernel" in sys.modules:
-    from IPython.display import display, Markdown
+    from IPython.display import Markdown, display
 
     pretty_print = display
 else:
     from rich.console import Console
     from rich.markdown import Markdown
-    from rich.pretty import pprint
 
     console = Console()
     pretty_print = console.print
@@ -143,7 +143,7 @@ def main():
 
     args = parser.parse_args()
     query_text = (
-        args.query_text[0] if type(args.query_text) == list else args.query_text
+        args.query_text[0] if type(args.query_text) is list else args.query_text
     )
 
     if args.language in ("vi", "th"):
@@ -199,7 +199,7 @@ def main():
                         sys.exit(0)
 
             # Ask user for feedback
-            if key == '__interrupt__':
+            if key == "__interrupt__":
                 if args.yes:
                     user_happy_with_answer = True
                 else:
@@ -346,7 +346,14 @@ def get_all_documents_as_df(db) -> pd.DataFrame:
 def run_query(
     question: str,
     llm: Literal[
-        "gpt-4o", "gpt-4o-mini", "mistral", "claude", "llama-3.1", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"
+        "gpt-4o",
+        "gpt-4o-mini",
+        "mistral",
+        "claude",
+        "llama-3.1",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
     ] = "claude",
     rag_filter: Optional[str] = None,
     improve_question: Optional[bool] = True,
@@ -355,7 +362,9 @@ def run_query(
     do_crawl: Optional[bool] = True,
     max_search_queries: Optional[int] = 1,
     do_add_additional_metadata: Optional[bool] = True,
-    language: Literal["en", "ar", "zh", "de", "id", "it", "ja", "kk", "ko", "ru", "es", "vi", "tl"] = "en",
+    language: Literal[
+        "en", "ar", "zh", "de", "id", "it", "ja", "kk", "ko", "ru", "es", "vi", "tl"
+    ] = "en",
     initial_generation: Optional[bool] = True,
     history: Optional[List] = [],
     mode: Optional[Literal["gui", "cli"]] = "cli",
@@ -363,13 +372,13 @@ def run_query(
     happy_with_answer: Optional[bool] = False,
     continue_after_interrupt: Optional[bool] = False,
 ) -> Iterator[Tuple[str, GraphState]]:
-
     if len(question) < 5:
         return "error", {"error": "Please provide a more complete question."}
 
     if len(language) > 2:
         # Convert language name to langcode
         import langcodes
+
         language = langcodes.find(language).language
 
     # Run

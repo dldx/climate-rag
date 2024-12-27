@@ -1,39 +1,35 @@
-from datetime import datetime, timezone
-import msgspec
-import pandas as pd
-from helpers import generate_qa_id
-from schemas import GraphState, SearchQuery, SearchQueries
-from typing import Any, List, Literal
-from typing_extensions import TypedDict
-from langcodes import Language
-from langchain_core.output_parsers import StrOutputParser
-
-from langchain_core.documents import Document
-
-
-from langchain_core.prompts import ChatPromptTemplate
-
-from langchain_core.prompts import PromptTemplate
-from llms import get_chatbot, get_max_token_length
-from langchain_core.output_parsers import JsonOutputParser
-from pydantic import BaseModel, Field
-from langchain_core.output_parsers import PydanticOutputParser
-
-from tools import (
-    get_sources_based_on_filter,
-    web_search_tool,
-    get_vector_store,
-    add_urls_to_db,
-    add_urls_to_db_firecrawl,
-    format_docs,
-    enc,
-)
-import numpy as np
-
 import os
+from datetime import datetime, timezone
+from functools import partial
+from typing import List
+
+import msgspec
+import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
+from langchain_core.documents import Document
+from langchain_core.output_parsers import (
+    JsonOutputParser,
+    PydanticOutputParser,
+    StrOutputParser,
+)
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
+from langcodes import Language
+from pydantic import BaseModel, Field
 
 from cache import r
+from helpers import generate_qa_id
+from llms import get_chatbot, get_max_token_length
+from schemas import GraphState, SearchQueries, SearchQuery
+from tools import (
+    add_urls_to_db,
+    enc,
+    format_docs,
+    get_source_document_extra_metadata,
+    get_sources_based_on_filter,
+    get_vector_store,
+    web_search_tool,
+)
 
 load_dotenv()
 
@@ -236,10 +232,6 @@ def retrieve(state: GraphState) -> GraphState:
     return {"documents": documents, "search_prompts": state["search_prompts"]}
 
 
-from tools import get_source_document_extra_metadata
-from functools import partial
-
-
 def get_metadata_for_source(r, use_llm: bool, source: str) -> dict:
     try:
         metadata = get_source_document_extra_metadata(
@@ -248,7 +240,7 @@ def get_metadata_for_source(r, use_llm: bool, source: str) -> dict:
             metadata_fields=["title", "company_name", "publishing_date"],
             use_llm=use_llm,
         )
-    except:
+    except Exception:
         # If metadata not found, continue
         metadata = {}
     metadata["source"] = source
@@ -496,7 +488,6 @@ def web_search(state: GraphState) -> GraphState:
         # Add web search results to documents
         documents += ranked_search_results[:max_results_to_add]
 
-
         print(
             f"""Identified {len(documents)} web search results: {
             [doc.metadata["source"] for doc in documents if doc.metadata.get("web_search")]
@@ -606,7 +597,7 @@ def add_urls_to_database(state: GraphState) -> GraphState:
     urls = list(
         map(
             lambda x: x.metadata["source"],
-            filter(lambda x: x.metadata.get("web_search") == True, documents),
+            filter(lambda x: x.metadata.get("web_search") is True, documents),
         )
     )
     # Add urls to database
@@ -747,7 +738,9 @@ def generate(state: GraphState) -> GraphState:
     # If there are no documents, save a message instead
     if len(documents) == 0:
         generation = """No relevant documents found to generate answer from!""" + (
-            " Check your RAG filters are correct!" if state.get("rag_filter", False) else ""
+            " Check your RAG filters are correct!"
+            if state.get("rag_filter", False)
+            else ""
         )
     else:
         # Get length of document tokens, and filter so that total tokens is less than 30,000

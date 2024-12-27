@@ -1,18 +1,22 @@
-import logging
-import shutil
-from typing import Any, Dict, List, Optional, Tuple
-import msgspec
-from pathvalidate import sanitize_filename as _sanitize_filename
-import os
-import pdf2docx
-import urllib.parse
-import re
-import pandas as pd
-from markdown_pdf import Section, MarkdownPdf
-import humanize
 import datetime
+import logging
+import os
+import shutil
+import urllib.parse
+from typing import Any, Dict, List, Optional, Tuple
+
+import humanize
+import msgspec
+import pandas as pd
+import pdf2docx
+from dotenv import load_dotenv
+from markdown_pdf import MarkdownPdf, Section
+from pathvalidate import sanitize_filename as _sanitize_filename
 
 from schemas import SourceMetadata
+
+load_dotenv()
+
 
 def sanitize_filename(filename: str) -> str:
     """
@@ -25,6 +29,7 @@ def sanitize_filename(filename: str) -> str:
         str: The sanitized filename.
     """
     return _sanitize_filename(filename).replace(" ", "_")
+
 
 def upload_file(
     file_name: str, bucket: str, path: str, object_name: Optional[str] = None
@@ -51,11 +56,13 @@ def upload_file(
         aws_secret_access_key=os.environ.get("S3_ACCESS_KEY_SECRET", ""),
     )
     try:
-        response = s3_client.upload_file(file_name, bucket, path + object_name)
+        s3_client.upload_file(file_name, bucket, path + object_name)
     except ClientError as e:
         logging.error(e)
         return False
     return True
+
+
 def md_to_pdf(md_string: str, pdf_path: str) -> str | None:
     """
     Convert a markdown string to a PDF file.
@@ -65,6 +72,7 @@ def md_to_pdf(md_string: str, pdf_path: str) -> str | None:
         pdf_path (str): The path to save the PDF file to
     """
     import stopit
+
     with stopit.ThreadingTimeout(5) as to_ctx_mgr:
         # Create a new PDF document
         pdf = MarkdownPdf(toc_level=2)
@@ -78,6 +86,7 @@ def md_to_pdf(md_string: str, pdf_path: str) -> str | None:
 
     return pdf_path
 
+
 def pdf_to_docx(pdf_path: str, docx_path: str) -> str:
     """
     Convert a PDF file to a DOCX file.
@@ -89,6 +98,7 @@ def pdf_to_docx(pdf_path: str, docx_path: str) -> str:
     pdf2docx.Converter(pdf_path).convert(docx_path)
 
     return docx_path
+
 
 def sanitize_url(url: str) -> str:
     """
@@ -130,6 +140,7 @@ def clean_urls(urls, static_path=""):
     urls = urls.str.replace("https://r.jina.ai/", "")
     return urls.tolist()
 
+
 def generate_qa_id(question: str, answer: str) -> str:
     """
     Return the question/answer ID from a given answer string by calculating the hash of the answer string and appending it to the question.
@@ -149,7 +160,10 @@ def generate_qa_id(question: str, answer: str) -> str:
 
     return qa_id
 
-def compile_answer(generation: str, initial_question: str, sources: List[str | Dict[str, Any] | None]) -> str:
+
+def compile_answer(
+    generation: str, initial_question: str, sources: List[str | Dict[str, Any] | None]
+) -> str:
     """
     Compile the answer from the generation and the sources.
 
@@ -167,7 +181,12 @@ def compile_answer(generation: str, initial_question: str, sources: List[str | D
         + "\n\n".join(
             set(
                 [
-                    (" * " + clean_urls([source], os.environ.get("STATIC_PATH", ""))[0] if isinstance(source, str) else " * " + str(source))
+                    (
+                        " * "
+                        + clean_urls([source], os.environ.get("STATIC_PATH", ""))[0]
+                        if isinstance(source, str)
+                        else " * " + str(source)
+                    )
                     for source in sources
                     if source is not None
                 ]
@@ -176,15 +195,18 @@ def compile_answer(generation: str, initial_question: str, sources: List[str | D
     )
 
     return answer
+
+
 def humanize_unix_date(date):
     return humanize.naturaltime(
-                datetime.datetime.now(datetime.UTC)
-                - datetime.datetime.fromtimestamp(
-                    int(date), tz=datetime.UTC
-                )
-            )
+        datetime.datetime.now(datetime.UTC)
+        - datetime.datetime.fromtimestamp(int(date), tz=datetime.UTC)
+    )
 
-def get_previous_queries(r, query_filter: str = "*", limit: int = 30, page_no: int = 0, additional_fields=[]) -> pd.DataFrame:
+
+def get_previous_queries(
+    r, query_filter: str = "*", limit: int = 30, page_no: int = 0, additional_fields=[]
+) -> pd.DataFrame:
     """
     Get the previous queries from the Redis index.
 
@@ -200,6 +222,7 @@ def get_previous_queries(r, query_filter: str = "*", limit: int = 30, page_no: i
     """
     from redis.commands.search.query import Query
     from redis.exceptions import ResponseError
+
     try:
         previous_queries_df = (
             pd.DataFrame.from_records(
@@ -207,9 +230,16 @@ def get_previous_queries(r, query_filter: str = "*", limit: int = 30, page_no: i
                     doc.__dict__
                     for doc in r.ft("idx:answer")
                     .search(
-                        Query(query_filter).return_fields(
-                            *["date_added", "question", "answer", "pdf_uri", "docx_uri"] + additional_fields
-                        ).sort_by("date_added", asc=False).paging(max(0, (page_no -1))*limit, limit + max(0, (page_no - 1))*limit)
+                        Query(query_filter)
+                        .return_fields(
+                            *["date_added", "question", "answer", "pdf_uri", "docx_uri"]
+                            + additional_fields
+                        )
+                        .sort_by("date_added", asc=False)
+                        .paging(
+                            max(0, (page_no - 1)) * limit,
+                            limit + max(0, (page_no - 1)) * limit,
+                        )
                     )
                     .docs
                 ]
@@ -217,35 +247,53 @@ def get_previous_queries(r, query_filter: str = "*", limit: int = 30, page_no: i
             .assign(
                 qa_id=lambda df: df.id.apply(lambda x: x.split(":", 3)[-1]),
                 date_added=lambda df: df.date_added.astype(int),
-                date_added_ts=lambda df: df.date_added.apply(lambda x: humanize_unix_date(x))
+                date_added_ts=lambda df: df.date_added.apply(
+                    lambda x: humanize_unix_date(x)
+                ),
             )
             .drop(columns=["payload", "id"])
         )
         # If "sources" in additional_fields, convert it from json
         if "sources" in additional_fields:
-            previous_queries_df["sources"] = previous_queries_df["sources"].apply(lambda x: clean_urls(
-                msgspec.json.decode(x) if x else [],
-                os.environ.get("STATIC_PATH", ""),
-            ))
-
-
+            previous_queries_df["sources"] = previous_queries_df["sources"].apply(
+                lambda x: clean_urls(
+                    msgspec.json.decode(x) if x else [],
+                    os.environ.get("STATIC_PATH", ""),
+                )
+            )
 
     except (ResponseError, AttributeError):
         import traceback
+
         print(traceback.format_exc())
-        previous_queries_df = pd.DataFrame(columns=["qa_id", "date_added", "date_added_ts", "question", "answer", "pdf_uri", "docx_uri"] + additional_fields)
+        previous_queries_df = pd.DataFrame(
+            columns=[
+                "qa_id",
+                "date_added",
+                "date_added_ts",
+                "question",
+                "answer",
+                "pdf_uri",
+                "docx_uri",
+            ]
+            + additional_fields
+        )
 
     return previous_queries_df
 
+
 def render_qa_pdfs(qa_id) -> Tuple[str, str]:
-    from helpers import md_to_pdf, pdf_to_docx
     from cache import r
+    from helpers import md_to_pdf, pdf_to_docx
+
     filename = sanitize_filename(qa_id)
     qa_map = r.hgetall(f"climate-rag::answer:{qa_id}")
     if len(qa_map.get("question", "")) == 0:
         qa_map["question"] = "No question provided"
     # Check if PDF is already in redis cache
-    if (qa_map.get("pdf_uri", None) is not None) and (qa_map.get("pdf_uri", None) != ""):
+    if (qa_map.get("pdf_uri", None) is not None) and (
+        qa_map.get("pdf_uri", None) != ""
+    ):
         pdf_download_url = qa_map["pdf_uri"]
         docx_download_url = qa_map["docx_uri"]
     else:
@@ -275,7 +323,7 @@ def render_qa_pdfs(qa_id) -> Tuple[str, str]:
                 pdf_download_url = f"{STATIC_PATH}/outputs/{filename}.pdf"
                 shutil.copy(docx_path, f"{UPLOAD_FILE_PATH}/outputs/{filename}.docx")
                 docx_download_url = f"{STATIC_PATH}/outputs/{filename}.docx"
-            elif (STATIC_PATH != "") and (USE_S3 == True):
+            elif (STATIC_PATH != "") and (USE_S3 is True):
                 # Upload the files to S3
                 if not upload_file(
                     file_name=pdf_path,
@@ -305,11 +353,12 @@ def render_qa_pdfs(qa_id) -> Tuple[str, str]:
         # Save PDF and DOCX locations to redis cache
         r.hset("climate-rag::answer:" + qa_id, "pdf_uri", pdf_download_url)
         r.hset("climate-rag::answer:" + qa_id, "docx_uri", docx_download_url)
-    return pdf_download_url,docx_download_url
+    return pdf_download_url, docx_download_url
 
 
 def modify_document_source_urls(old_url, new_url, db, r):
     from redis import ResponseError
+
     # Rename redis key
     try:
         r.rename(f"climate-rag::source:{old_url}", f"climate-rag::source:{new_url}")
@@ -352,6 +401,7 @@ def bin_list_into_chunks(lst, n_chunks):
 
     return chunks
 
+
 def clean_up_metadata_object(source_metadata: SourceMetadata) -> dict:
     import datetime
 
@@ -365,7 +415,12 @@ def clean_up_metadata_object(source_metadata: SourceMetadata) -> dict:
             source_metadata_map["publishing_date"] = None
         else:
             # Fill missing month and day with 1
-            source_metadata_map["publishing_date"] = pd.Series(source_metadata_map["publishing_date"]).fillna(1).astype(int).tolist()
+            source_metadata_map["publishing_date"] = (
+                pd.Series(source_metadata_map["publishing_date"])
+                .fillna(1)
+                .astype(int)
+                .tolist()
+            )
             source_metadata_map["publishing_date"] = int(
                 datetime.datetime(*source_metadata_map["publishing_date"]).timestamp()
             )
@@ -381,10 +436,11 @@ def clean_up_metadata_object(source_metadata: SourceMetadata) -> dict:
     )
     if source_metadata_map.get("scanned_pdf", None) is not None:
         source_metadata_map["scanned_pdf"] = msgspec.json.encode(
-        source_metadata_map["scanned_pdf"]
-    )
+            source_metadata_map["scanned_pdf"]
+        )
     # Save metadata to redis
-    source_metadata_map = {k: v for k, v in source_metadata_map.items() if v is not None}
+    source_metadata_map = {
+        k: v for k, v in source_metadata_map.items() if v is not None
+    }
 
     return source_metadata_map
-

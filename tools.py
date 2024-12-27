@@ -1,35 +1,31 @@
-import hashlib
 import asyncio
+import datetime
+import glob
+import os
+import re
+import shutil
+import tempfile
 import traceback
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence
+
 import pandas as pd
+import tiktoken
+from dotenv import load_dotenv
+from langchain_chroma import Chroma
+from langchain_community.document_loaders import (
+    FireCrawlLoader,
+    PyPDFDirectoryLoader,
+    UnstructuredMarkdownLoader,
+    YoutubeLoader,
+)
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_community.vectorstores.utils import filter_complex_metadata
+from langchain_core.documents import Document
 from redis import ResponseError
 from ulid import ULID
-import os
-import logging
-import tempfile
-from typing import Any, Callable, Dict, List, Optional, Sequence
-from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_community.document_loaders import FireCrawlLoader
-from langchain_community.document_loaders import YoutubeLoader
-import shutil
-import glob
-from typing import Literal
-from langchain_text_splitters import (
-    RecursiveCharacterTextSplitter,
-    MarkdownHeaderTextSplitter,
-)
-from langchain_experimental.text_splitter import SemanticChunker
-from text_splitters import TablePreservingTextSplitter, TablePreservingSemanticChunker
-import msgspec
-from get_embedding_function import get_embedding_function
-from langchain_community.document_loaders import PyPDFDirectoryLoader
-from langchain_community.document_loaders import UnstructuredMarkdownLoader
-from langchain_community.vectorstores.utils import filter_complex_metadata
-from langchain_chroma import Chroma
-from langchain_core.documents import Document
-import datetime
 
-from cache import r, source_index_name, zh_source_index_name, ja_source_index_name
+from cache import ja_source_index_name, r, source_index_name, zh_source_index_name
+from get_embedding_function import get_embedding_function
 from helpers import (
     clean_up_metadata_object,
     clean_urls,
@@ -37,19 +33,15 @@ from helpers import (
     sanitize_url,
     upload_file,
 )
-
 from pdf_download import download_urls_in_headed_chrome, download_urls_with_requests
-
-import tiktoken
-import re
+from schemas import SourceMetadata
+from text_splitters import TablePreservingSemanticChunker, TablePreservingTextSplitter
 
 enc = tiktoken.encoding_for_model("gpt-4o")
 
 web_search_tool = TavilySearchResults(k=3)
 DATA_PATH = "data"
 
-
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -155,9 +147,7 @@ def add_urls_to_db(
                 or url.lower().endswith(".zip")
             ):
                 # Cannot load excel files right now
-                error_hash = store_error_in_redis(
-                    url, "Cannot load excel files", "add_urls_to_db"
-                )
+                store_error_in_redis(url, "Cannot load excel files", "add_urls_to_db")
             # Check if it is a youtube url
             elif "youtube.com/watch?v=" in url:
                 # Use the youtube loader
@@ -182,7 +172,8 @@ def add_urls_to_db(
                             )
                         else:
                             downloaded_urls = download_urls_with_requests(
-                                urls=[url], download_dir=temp_dir.name)
+                                urls=[url], download_dir=temp_dir.name
+                            )
                         # Try using Gemini to process the PDF
                         gemini_docs = add_document_to_db_via_gemini(
                             downloaded_urls[0]["local_path"],
@@ -193,8 +184,8 @@ def add_urls_to_db(
                         )
                         docs += gemini_docs
 
-                    except Exception as e:
-                        error_hash = store_error_in_redis(
+                    except Exception:
+                        store_error_in_redis(
                             url, str(traceback.format_exc()), "headed_chrome"
                         )
                         downloaded_urls = []
@@ -208,7 +199,14 @@ def add_urls_to_db(
                             document_prefix=document_prefix,
                         )
                         # Check if the URL has been successfully processed
-                        if url in list( map( lambda x: x.metadata["source"].replace( "https://r.jina.ai/", "" ), jina_docs, ) ):
+                        if url in list(
+                            map(
+                                lambda x: x.metadata["source"].replace(
+                                    "https://r.jina.ai/", ""
+                                ),
+                                jina_docs,
+                            )
+                        ):
                             docs += jina_docs
                         else:
                             # If file is stored on S3 server, we probably need to use Gemini to process it since jina.ai likely failed
@@ -232,7 +230,11 @@ def add_urls_to_db(
                                     if len(downloaded_urls) > 0:
                                         # Upload documents to server and then process it
                                         uploaded_docs = upload_documents(
-                                            files=[downloaded_urls[0]["local_path"]], db=db, use_gemini=use_gemini, table_augmenter=table_augmenter, document_prefix=document_prefix
+                                            files=[downloaded_urls[0]["local_path"]],
+                                            db=db,
+                                            use_gemini=use_gemini,
+                                            table_augmenter=table_augmenter,
+                                            document_prefix=document_prefix,
                                         )
                                         if len(uploaded_docs) > 0:
                                             # Change the source to the original URL
@@ -244,31 +246,37 @@ def add_urls_to_db(
                                             )
                                         else:
                                             # Try using Gemini to process the PDF
-                                            uploaded_docs = add_document_to_db_via_gemini(
-                                                downloaded_urls[0]["local_path"],
-                                                url,
-                                                db,
-                                                table_augmenter=table_augmenter,
-                                                document_prefix=document_prefix,
+                                            uploaded_docs = (
+                                                add_document_to_db_via_gemini(
+                                                    downloaded_urls[0]["local_path"],
+                                                    url,
+                                                    db,
+                                                    table_augmenter=table_augmenter,
+                                                    document_prefix=document_prefix,
+                                                )
                                             )
                                     else:
                                         raise Exception(
                                             f"Failed to download file via Headed Chrome: {url}"
                                         )
-                                except Exception as e:
-                                    error_hash = store_error_in_redis(
-                                        url, str(traceback.format_exc()), "headed_chrome"
+                                except Exception:
+                                    store_error_in_redis(
+                                        url,
+                                        str(traceback.format_exc()),
+                                        "headed_chrome",
                                     )
                                     uploaded_docs = []
                             docs += uploaded_docs
                     else:
                         # use local chrome loader instead
-                        chrome_docs = asyncio.run(add_urls_to_db_chrome(
-                            [url],
-                            db,
-                            table_augmenter=table_augmenter,
-                            document_prefix=document_prefix,
-                        ))
+                        chrome_docs = asyncio.run(
+                            add_urls_to_db_chrome(
+                                [url],
+                                db,
+                                table_augmenter=table_augmenter,
+                                document_prefix=document_prefix,
+                            )
+                        )
                         # Check if the URL has been successfully processed
                         if url in list(
                             map(lambda x: x.metadata["source"], chrome_docs)
@@ -297,7 +305,8 @@ def add_urls_to_db_html(
     urls: List[str], db, table_augmenter, document_prefix
 ) -> List[Document]:
     from langchain_community.document_loaders import AsyncHtmlLoader
-    from chromium import user_agents, Rotator
+
+    from chromium import Rotator, user_agents
 
     user_agent = Rotator(user_agents)
 
@@ -449,7 +458,7 @@ def add_document_to_db_via_gemini(
                 doc.metadata["fetched_additional_metadata"] = "true"
                 add_doc_to_redis(r, doc)
                 docs += [doc]
-        except Exception as e:
+        except Exception:
             store_error_in_redis(original_uri, str(traceback.format_exc()), "gemini")
     else:
         print("Already in database: ", original_uri)
@@ -460,7 +469,6 @@ def add_document_to_db_via_gemini(
 def add_urls_to_db_firecrawl(
     urls: List[str], db, table_augmenter=None, document_prefix=""
 ) -> List[Document]:
-
     docs = []
     for url in urls:
         ids_existing = r.keys(f"*{url}")
@@ -539,11 +547,15 @@ def add_doc_to_redis(r, doc):
 async def add_urls_to_db_chrome(
     urls: List[str], db, headless=True, table_augmenter=None, document_prefix=""
 ) -> List[Document]:
-    from langchain_community.document_loaders import AsyncChromiumLoader
-    from langchain_community.document_loaders import AsyncHtmlLoader
-    from langchain_community.document_transformers import Html2TextTransformer
     import asyncio
-    from chromium import user_agents, Rotator
+
+    from langchain_community.document_loaders import (
+        AsyncChromiumLoader,
+        AsyncHtmlLoader,
+    )
+    from langchain_community.document_transformers import Html2TextTransformer
+
+    from chromium import Rotator, user_agents
 
     user_agent = Rotator(user_agents)
     default_header_template = {
@@ -563,14 +575,22 @@ async def add_urls_to_db_chrome(
     ]
     print("Adding to database: ", filtered_urls)
     # Load document with
-    html_loader = AsyncHtmlLoader(filtered_urls, header_template=default_header_template)
+    html_loader = AsyncHtmlLoader(
+        filtered_urls, header_template=default_header_template
+    )
     docs_html = html_loader.aload()
-    original_chromium_loader = AsyncChromiumLoader(urls=filtered_urls, headless=headless, user_agent=str(user_agent.get()))
+    original_chromium_loader = AsyncChromiumLoader(
+        urls=filtered_urls, headless=headless, user_agent=str(user_agent.get())
+    )
     docs_original_chromium = original_chromium_loader.aload()
 
-
     docs = await asyncio.gather(docs_html, docs_original_chromium)
-    docs = list(map(lambda x: x[0] if len(x[0].page_content) > len(x[1].page_content) else x[1], zip(*docs)))
+    docs = list(
+        map(
+            lambda x: x[0] if len(x[0].page_content) > len(x[1].page_content) else x[1],
+            zip(*docs),
+        )
+    )
 
     # Cache raw html in redis
     for doc in docs:
@@ -669,6 +689,7 @@ def get_sources_based_on_filter(
     """
     # Get all sources from redis
     import re
+
     from redis.commands.search.query import Query
 
     if bool(re.search(r"@.+:.+", rag_filter)) is False:
@@ -717,22 +738,50 @@ def get_sources_based_on_filter(
 
     # Get all sources from redis based on FT.SEARCH
     try:
-        source_list = [
-            doc.id.replace("climate-rag::source:", "")
-            for doc in r.ft(source_index_name)
-            .search(Query(rag_filter).dialect(2).paging(max(0, (page_no -1))*limit, limit + max(0, (page_no - 1))*limit).timeout(5000))
-            .docs
-        ] + [
-            doc.id.replace("climate-rag::source:", "")
-            for doc in r.ft(zh_source_index_name)
-            .search(Query(rag_filter).dialect(2).paging(max(0, (page_no -1))*limit, limit + max(0, (page_no - 1))*limit).timeout(5000))
-            .docs
-        ] + [
-            doc.id.replace("climate-rag::source:", "")
-            for doc in r.ft(ja_source_index_name)
-            .search(Query(rag_filter).dialect(2).paging(max(0, (page_no -1))*limit, limit + max(0, (page_no - 1))*limit).timeout(5000))
-            .docs
-        ]
+        source_list = (
+            [
+                doc.id.replace("climate-rag::source:", "")
+                for doc in r.ft(source_index_name)
+                .search(
+                    Query(rag_filter)
+                    .dialect(2)
+                    .paging(
+                        max(0, (page_no - 1)) * limit,
+                        limit + max(0, (page_no - 1)) * limit,
+                    )
+                    .timeout(5000)
+                )
+                .docs
+            ]
+            + [
+                doc.id.replace("climate-rag::source:", "")
+                for doc in r.ft(zh_source_index_name)
+                .search(
+                    Query(rag_filter)
+                    .dialect(2)
+                    .paging(
+                        max(0, (page_no - 1)) * limit,
+                        limit + max(0, (page_no - 1)) * limit,
+                    )
+                    .timeout(5000)
+                )
+                .docs
+            ]
+            + [
+                doc.id.replace("climate-rag::source:", "")
+                for doc in r.ft(ja_source_index_name)
+                .search(
+                    Query(rag_filter)
+                    .dialect(2)
+                    .paging(
+                        max(0, (page_no - 1)) * limit,
+                        limit + max(0, (page_no - 1)) * limit,
+                    )
+                    .timeout(5000)
+                )
+                .docs
+            ]
+        )
         source_list = list(set(source_list))
     except ResponseError:
         print("Redis error:", str(traceback.format_exc()))
@@ -811,9 +860,7 @@ Content:
 {content}
 
 ---
-""".format(
-            **doc_metadata
-        )
+""".format(**doc_metadata)
         for doc_metadata in compile_docs_metadata(docs)
     )
 
@@ -934,7 +981,6 @@ def add_to_chroma(db: Chroma, chunks: list[Document]):
 
 
 def calculate_chunk_ids(chunks):
-
     # This will create IDs like "data/monopoly.pdf:6:2"
     # Page Source : Page Number : Chunk Index
 
@@ -960,9 +1006,6 @@ def calculate_chunk_ids(chunks):
         chunk.metadata["id"] = chunk_id
 
     return chunks
-
-
-from schemas import SourceMetadata, SearchQuery
 
 
 def _unique_documents(documents: Sequence[Document]) -> List[Document]:
@@ -1009,13 +1052,12 @@ def upload_documents(
         A list of documents that were added to the database.
     """
     import requests
-    import shutil
 
     UPLOAD_FILE_PATH = os.environ.get("UPLOAD_FILE_PATH", "")
     STATIC_PATH = os.environ.get("STATIC_PATH", "")
     USE_S3 = os.environ.get("USE_S3", False) == "True"
 
-    if type(files) == str:
+    if type(files) is str:
         files = [files]
 
     docs: List[Document] = []
@@ -1070,14 +1112,12 @@ def upload_documents(
 
 
 def extract_metadata_from_source_document(source_text) -> SourceMetadata:
-    from llms import get_chatbot, get_max_token_length
-    from prompts import metadata_extractor_prompt
-    from langchain_core.output_parsers import PydanticOutputParser
     import tiktoken
-
+    from langchain_core.output_parsers import PydanticOutputParser
     from langchain_core.prompts import ChatPromptTemplate
 
-    from langchain_core.prompts import PromptTemplate
+    from llms import get_chatbot, get_max_token_length
+    from prompts import metadata_extractor_prompt
 
     parser = PydanticOutputParser(pydantic_object=SourceMetadata)
 
@@ -1097,7 +1137,9 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
 
     # The maximum token length for GPT-4o-mini is 128000 tokens
     # Reduce the length of the text to fit within the token limit and speed things up
-    source_text = source_text[: int(max_token_length / total_token_length * len(source_text))]
+    source_text = source_text[
+        : int(max_token_length / total_token_length * len(source_text))
+    ]
 
     metadata = extract_chain.invoke({"raw_text": source_text})
 
@@ -1186,10 +1228,11 @@ def generate_additional_table_context(table: str) -> str:
     Returns:
         str: The augmented table.
     """
-    from prompts import table_augmentation_prompt
-    from langchain_core.prompts import ChatPromptTemplate
     from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
+
     from llms import get_chatbot
+    from prompts import table_augmentation_prompt
 
     llm = get_chatbot("gemini-2.0-flash-exp")
 

@@ -1,8 +1,6 @@
-from langchain_community.embeddings.ollama import OllamaEmbeddings
-from langchain_community.embeddings.bedrock import BedrockEmbeddings
-from langchain_openai import OpenAIEmbeddings
-import os
 from dotenv import load_dotenv
+from langchain_openai import OpenAIEmbeddings
+
 load_dotenv()
 
 

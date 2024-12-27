@@ -1,12 +1,15 @@
 import re
-from typing import List, Dict, Callable, Optional
-from langchain_experimental.text_splitter import SemanticChunker
+from typing import Callable, List, Optional
+
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_experimental.text_splitter import SemanticChunker
+
 
 class BaseTablePreservingTextSplitter:
     """
     Base class for table-preserving text splitters with common table extraction logic.
     """
+
     @staticmethod
     def extract_tables(text: str) -> List[dict]:
         """
@@ -26,30 +29,36 @@ class BaseTablePreservingTextSplitter:
 
         # Find markdown tables
         for match in re.finditer(markdown_table_pattern, text, re.MULTILINE):
-            tables.append({
-                "type": "markdown",
-                "content": match.group(0),
-                "start": match.start(),
-                "end": match.end(),
-            })
+            tables.append(
+                {
+                    "type": "markdown",
+                    "content": match.group(0),
+                    "start": match.start(),
+                    "end": match.end(),
+                }
+            )
 
         # Find HTML tables
         for match in re.finditer(html_table_pattern, text, re.DOTALL):
-            tables.append({
-                "type": "html",
-                "content": match.group(0),
-                "start": match.start(),
-                "end": match.end(),
-            })
+            tables.append(
+                {
+                    "type": "html",
+                    "content": match.group(0),
+                    "start": match.start(),
+                    "end": match.end(),
+                }
+            )
 
         # Find pipe-separated tables
         for match in re.finditer(pipe_table_pattern, text, re.MULTILINE):
-            tables.append({
-                "type": "pipe",
-                "content": match.group(0),
-                "start": match.start(),
-                "end": match.end(),
-            })
+            tables.append(
+                {
+                    "type": "pipe",
+                    "content": match.group(0),
+                    "start": match.start(),
+                    "end": match.end(),
+                }
+            )
 
         # Sort and deduplicate tables
         tables = sorted(tables, key=lambda x: x["start"])
@@ -64,13 +73,14 @@ class BaseTablePreservingTextSplitter:
         return deduplicated_tables
 
     @classmethod
-    def split_text(cls,
-                   text: str,
-                   base_splitter: Callable[[str], List[str]],
-                   chunk_size: Optional[int] = None,
-                   length_function: Callable[[str], int] = len,
-                   table_augmenter: Optional[Callable[[str], str]] = None
-                   ) -> List[str]:
+    def split_text(
+        cls,
+        text: str,
+        base_splitter: Callable[[str], List[str]],
+        chunk_size: Optional[int] = None,
+        length_function: Callable[[str], int] = len,
+        table_augmenter: Optional[Callable[[str], str]] = None,
+    ) -> List[str]:
         """
         Split text while preserving tables.
 
@@ -114,8 +124,11 @@ class BaseTablePreservingTextSplitter:
                 for text_chunk in text_chunks:
                     # Determine if chunk can be added based on chunk_size
                     can_add_chunk = (
-                        chunk_size is None or
-                        length_function(current_chunk) + length_function(text_chunk) + 1 <= chunk_size
+                        chunk_size is None
+                        or length_function(current_chunk)
+                        + length_function(text_chunk)
+                        + 1
+                        <= chunk_size
                     )
 
                     # Try to add the text chunk to the current chunk
@@ -135,13 +148,18 @@ class BaseTablePreservingTextSplitter:
                     segment["content"] = table_augmenter(segment["content"])
                 # Determine if table can be added based on chunk_size
                 can_add_table = (
-                    chunk_size is None or
-                    length_function(current_chunk) + length_function(segment["content"]) + 1 <= chunk_size
+                    chunk_size is None
+                    or length_function(current_chunk)
+                    + length_function(segment["content"])
+                    + 1
+                    <= chunk_size
                 )
 
                 # If table fits in current chunk, add it
                 if can_add_table:
-                    current_chunk += ("\n\n" if current_chunk else "") + segment["content"]
+                    current_chunk += ("\n\n" if current_chunk else "") + segment[
+                        "content"
+                    ]
                 else:
                     # If current chunk exists, finalize it
                     if current_chunk:
@@ -169,7 +187,7 @@ class TablePreservingSemanticChunker(SemanticChunker):
             base_splitter=super().split_text,
             chunk_size=self._chunk_size,
             length_function=self._length_function,
-            table_augmenter=self._table_augmenter
+            table_augmenter=self._table_augmenter,
         )
 
 
@@ -186,5 +204,5 @@ class TablePreservingTextSplitter(RecursiveCharacterTextSplitter):
             base_splitter=super().split_text,
             chunk_size=self._chunk_size,
             length_function=self._length_function,
-            table_augmenter=self._table_augmenter
+            table_augmenter=self._table_augmenter,
         )

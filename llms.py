@@ -1,5 +1,6 @@
 import os
 from typing import Literal
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,9 +8,18 @@ load_dotenv()
 
 def get_chatbot(
     llm: Literal[
-        "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash", "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude", "llama-3.1"
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+        "gpt-4o",
+        "gpt-4",
+        "gpt-4o-mini",
+        "gpt-3.5-turbo-16k",
+        "mistral",
+        "claude",
+        "llama-3.1",
     ] = "claude",
-    **kwargs
+    **kwargs,
 ):
     """Get a chatbot instance.
 
@@ -23,11 +33,15 @@ def get_chatbot(
 
     if llm in ["gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k"]:
         from langchain_openai import ChatOpenAI
+
         return ChatOpenAI(model=llm, **kwargs)
     elif llm in ["llama-3.1"]:
         from langchain_nvidia_ai_endpoints import ChatNVIDIA
+
         if "NVIDIA_API_KEY" not in os.environ:
-            raise ValueError("`NVIDIA_API_KEY` is needed to call llama-3.1 but it is not set in .env.")
+            raise ValueError(
+                "`NVIDIA_API_KEY` is needed to call llama-3.1 but it is not set in .env."
+            )
         return ChatNVIDIA(
             model="meta/llama-3.1-405b-instruct",
             api_key=os.getenv("NVIDIA_API_KEY"),
@@ -37,10 +51,14 @@ def get_chatbot(
         )
     elif llm in ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-exp"]:
         from langchain_google_vertexai import ChatVertexAI
-        # The GOOGLE_PROJECT_ID environment variable must be set
-        if "GOOGLE_PROJECT_ID" not in os.environ or not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-            raise ValueError("`GOOGLE_PROJECT_ID` and `GOOGLE_APPLICATION_CREDENTIALS` are both needed to call Gemini but are not set in .env. See https://cloud.google.com/docs/authentication/provide-credentials-adc#how-to for details")
 
+        # The GOOGLE_PROJECT_ID environment variable must be set
+        if "GOOGLE_PROJECT_ID" not in os.environ or not os.getenv(
+            "GOOGLE_APPLICATION_CREDENTIALS"
+        ):
+            raise ValueError(
+                "`GOOGLE_PROJECT_ID` and `GOOGLE_APPLICATION_CREDENTIALS` are both needed to call Gemini but are not set in .env. See https://cloud.google.com/docs/authentication/provide-credentials-adc#how-to for details"
+            )
 
         return ChatVertexAI(
             model=llm,
@@ -49,15 +67,18 @@ def get_chatbot(
         )
     elif llm == "mistral":
         from langchain_community.chat_models import ChatOllama
+
         return ChatOllama(model="mistral", temperature=0, **kwargs)
     elif llm == "claude":
         from langchain_anthropic import ChatAnthropic
+
         return ChatAnthropic(
             model="claude-3-5-sonnet-20240620",
             temperature=0,
             timeout=None,
             max_retries=2,
         )
+
 
 def get_max_token_length(llm: str) -> int:
     if llm == "gpt-4o":
@@ -67,4 +88,3 @@ def get_max_token_length(llm: str) -> int:
         return 500_000
     else:
         return 24_000
-

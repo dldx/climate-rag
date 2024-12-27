@@ -1,18 +1,16 @@
 import asyncio
 import logging
+import random
+from functools import cached_property
+from time import time
 from typing import AsyncIterator, Iterator, List, Literal
 
-from langchain_core.documents import Document
-
 from langchain_core.document_loaders import BaseLoader
+from langchain_core.documents import Document
+from ua_parser import user_agent_parser
 
 logger = logging.getLogger(__name__)
 
-from ua_parser import user_agent_parser
-from functools import cached_property
-from typing import List
-from time import time
-import random
 
 class UserAgent:
     """container for a User-Agent"""
@@ -41,6 +39,7 @@ class UserAgent:
     # Return the actual user agent string
     def __str__(self) -> str:
         return self.string
+
 
 class Rotator:
     """weighted random user agent rotator"""
@@ -93,7 +92,6 @@ class Rotator:
         user_agent.last_used = time()
         return user_agent
 
-from collections import Counter
 
 # Some user agents from the list we created earlier
 user_agents = [
@@ -105,11 +103,20 @@ user_agents = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/113.0",
 ]
 
+
 class AsyncChromiumLoader(BaseLoader):
     """Scrape HTML pages from URLs using a
     headless instance of the Chromium."""
 
-    def __init__(self, urls: List[str], *, headless: bool = True, excluded_resource_types: List[Literal["stylesheet", "script", "image", "font"]] = ["stylesheet", "image", "font"]):
+    def __init__(
+        self,
+        urls: List[str],
+        *,
+        headless: bool = True,
+        excluded_resource_types: List[
+            Literal["stylesheet", "script", "image", "font"]
+        ] = ["stylesheet", "image", "font"],
+    ):
         """Initialize the loader with a list of URL paths.
 
         Args:
@@ -132,13 +139,12 @@ class AsyncChromiumLoader(BaseLoader):
             )
 
     async def block_aggressively(self, route):
-        if (route.request.resource_type in self.excluded_resource_types):
+        if route.request.resource_type in self.excluded_resource_types:
             await route.abort()
         else:
             await route.continue_()
-            from collections import Counter
 
-# Some user agents from the list we created earlier
+    # Some user agents from the list we created earlier
 
     async def ascrape_playwright(self, url: str) -> str:
         """
@@ -164,7 +170,7 @@ class AsyncChromiumLoader(BaseLoader):
                 await page.route("**/*", self.block_aggressively)
                 await page.goto(url, wait_until="domcontentloaded")
                 # Scroll down to load more content
-                for i in range(5): #make the range as long as needed
+                for i in range(5):  # make the range as long as needed
                     await page.mouse.wheel(0, 15000)
                     time.sleep(2)
                 results = await page.content()  # Simply get the HTML content

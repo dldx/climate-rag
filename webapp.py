@@ -1,37 +1,27 @@
-import logging
+import os
 import re
-import urllib.parse
-import pandas as pd
-from pathvalidate import sanitize_filename
-import humanize
-import msgspec
+import sys
 from typing import List, Tuple
+
 import gradio as gr
 from dotenv import load_dotenv
-import os
-import shutil
-import hashlib
-from langchain_core.documents import Document
 from gradio_log import Log
 from ulid import ULID
-import sys
+
+from cache import r
 from constants import language_choices
-
-sys.settrace(None)
-
-load_dotenv()
-
 from helpers import (
     clean_urls,
     compile_answer,
-    generate_qa_id,
     render_qa_pdfs,
     sanitize_url,
 )
 from query_data import query_source_documents, run_query
 from tools import get_vector_store
-from cache import r
 
+sys.settrace(None)
+
+load_dotenv()
 db = get_vector_store()
 
 
@@ -89,7 +79,11 @@ def climate_chat(
             elif message[0].lower() == "y":
                 happy_with_answer = True
                 getting_feedback = False
-                yield "Great! I'm glad I could help. What else would you like to know?", questions, answers
+                yield (
+                    "Great! I'm glad I could help. What else would you like to know?",
+                    questions,
+                    answers,
+                )
                 number_of_past_questions = len(questions)
                 return
             else:
@@ -128,24 +122,34 @@ def climate_chat(
     ):
         if key == "improve_question":
             if improve_question:
-                yield f"""**Improved question:** {value["question"]}""" + (
-                    f"""\n**Better question (en):** {value["question_en"]}"""
-                    if language != "en"
-                    else ""
-                ), questions, answers
+                yield (
+                    f"""**Improved question:** {value["question"]}"""
+                    + (
+                        f"""\n**Better question (en):** {value["question_en"]}"""
+                        if language != "en"
+                        else ""
+                    ),
+                    questions,
+                    answers,
+                )
             else:
                 yield None, questions, answers
         elif key == "formulate_query":
-            yield f"""**Generated search queries:**\n\n""" + "\n".join(
-                [
-                    (
-                        f" * {query.query} ({query.query_en})"
-                        if language != "en"
-                        else f" * {query.query_en}"
-                    )
-                    for query in value["search_prompts"]
-                ]
-            ), questions, answers
+            yield (
+                """**Generated search queries:**\n\n"""
+                + "\n".join(
+                    [
+                        (
+                            f" * {query.query} ({query.query_en})"
+                            if language != "en"
+                            else f" * {query.query_en}"
+                        )
+                        for query in value["search_prompts"]
+                    ]
+                ),
+                questions,
+                answers,
+            )
 
         elif key == "retrieve_from_database":
             yield "**Retrieving documents from database...**", questions, answers
@@ -153,15 +157,23 @@ def climate_chat(
 
             # Retrieved from database: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
         elif key == "web_search_node":
-            yield f"""**Searching the web for more information...**""", questions, answers
+            yield (
+                """**Searching the web for more information...**""",
+                questions,
+                answers,
+            )
             # yield f"""Search query: {value["search_query"]}
 
             # Search query (en): {value["search_query_en"]}""", questions
         elif key == "add_additional_metadata":
-            yield f"""**Fetching document titles, entities, etc...**""", questions, answers
+            yield (
+                """**Fetching document titles, entities, etc...**""",
+                questions,
+                answers,
+            )
         elif key == "rerank_documents":
             # yield f"""Reranked documents: {[doc.metadata["id"] for doc in value["documents"]]}""", questions
-            yield f"""**Reranking documents...**""", questions, answers
+            yield """**Reranking documents...**""", questions, answers
 
         elif key == "generate":
             answers.append(value["qa_id"])
@@ -175,7 +187,7 @@ def climate_chat(
             # After generation ask for feedback
             yield USER_FEEDBACK_QUESTION, questions, answers
         elif key == "add_urls_to_database":
-            yield f"""**Added new pages to database**""", questions, answers
+            yield """**Added new pages to database**""", questions, answers
         # else:
         #     yield str(value), questions, answers
 
@@ -356,7 +368,10 @@ footer {
             gr.Markdown("## Search through existing documents")
         # Search through documents in the vector database
         with gr.Row():
-            search_input = gr.Textbox(placeholder='Search documents. eg. carbontracker or @title:"annual report 2022 shell"', show_label=False)
+            search_input = gr.Textbox(
+                placeholder='Search documents. eg. carbontracker or @title:"annual report 2022 shell"',
+                show_label=False,
+            )
             search_button = gr.Button(value="Search", visible=False)
         with gr.Row():
             search_results_display = gr.Dataset(
@@ -444,9 +459,15 @@ footer {
         )
         for bot_message, questions, answers in bot_messages:
             chat_history.append([None, bot_message])
-            yield chat_history, chat_history, questions, answers, chat_id, download_latest_answer(
-                questions, answers
-            )[1], f"## Chat\n### {questions[-1]}"
+            yield (
+                chat_history,
+                chat_history,
+                questions,
+                answers,
+                chat_id,
+                download_latest_answer(questions, answers)[1],
+                f"## Chat\n### {questions[-1]}",
+            )
 
     converse_event = chat_input.submit(
         fn=user,
@@ -530,9 +551,6 @@ footer {
 
     ## Tab 2: Query history
     def get_query_history(query_filter):
-        import pandas as pd
-        import msgspec
-        import datetime
         from helpers import get_previous_queries
 
         if (query_filter is None) or (query_filter == ""):
@@ -542,7 +560,13 @@ footer {
         df = get_previous_queries(r, query_filter=query_filter, limit=100).set_index(
             "qa_id"
         )[["date_added_ts", "question", "answer", "pdf_uri"]]
-        df.question = '<a target="_blank" href="/answers/' + df.index + '/html" >' + df.question + '</a>'
+        df.question = (
+            '<a target="_blank" href="/answers/'
+            + df.index
+            + '/html" >'
+            + df.question
+            + "</a>"
+        )
         # Deal with missing PDF and DOCX URIs
         missing_pdfs = df.loc[lambda df: df.isnull().any(axis=1)].index.tolist()
         for qa_id in missing_pdfs:
@@ -601,7 +625,7 @@ footer {
                 "date_added",
                 "page_length",
             ],
-            limit=100
+            limit=100,
         )[
             [
                 "title",
@@ -678,4 +702,5 @@ footer {
 
 
 demo.queue(default_concurrency_limit=None)
-# demo.launch(inbrowser=False, show_api=False, max_threads=80)
+if __name__ == "__main__":
+    demo.launch(inbrowser=False, show_api=False, max_threads=80)

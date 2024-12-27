@@ -1,12 +1,11 @@
 import argparse
-import os
-import shutil
+
 from tools import (
-    add_urls_to_db,
-    split_documents,
     add_to_chroma,
+    add_urls_to_db,
     get_vector_store,
     load_documents,
+    split_documents,
     upload_documents,
 )
 
@@ -41,16 +40,27 @@ def main():
         help="Prefix to add to the documents when uploading to the database.",
     )
 
-
     args = parser.parse_args()
 
     # Create (or update) the data store.
     db = get_vector_store()
     if args.urls:
         for url in args.urls:
-            add_urls_to_db([url], db, use_gemini=args.force_gemini, table_augmenter=args.add_table_context, document_prefix=args.document_prefix)
+            add_urls_to_db(
+                [url],
+                db,
+                use_gemini=args.force_gemini,
+                table_augmenter=args.add_table_context,
+                document_prefix=args.document_prefix,
+            )
     elif args.files:
-        upload_documents(args.files, db, use_gemini=args.force_gemini, table_augmenter=args.add_table_context, document_prefix=args.document_prefix)
+        upload_documents(
+            args.files,
+            db,
+            use_gemini=args.force_gemini,
+            table_augmenter=args.add_table_context,
+            document_prefix=args.document_prefix,
+        )
     else:
         # For local documents
         documents = load_documents()

@@ -1,12 +1,14 @@
+import argparse
+import base64
 import logging
 import os
 from typing import Tuple
-from llms import get_chatbot
-import base64
-from schemas import PDFMetadata
-import argparse
+
 from rich.console import Console
 from rich.markdown import Markdown
+
+from llms import get_chatbot
+from schemas import PDFMetadata
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,18 +29,18 @@ def process_pdf_via_gemini(
         str: The PDF content converted to markdown.
     """
 
-    from langchain_core.prompts import ChatPromptTemplate
-    from langchain_core.exceptions import OutputParserException
-    import requests
+    import mimetypes
     from pathlib import Path
     from urllib.parse import urlparse
-    import mimetypes
 
-    from langchain_core.prompts import PromptTemplate
-    from langchain_core.output_parsers import PydanticOutputParser
+    import requests
+    from langchain_core.exceptions import OutputParserException
     from langchain_core.messages import HumanMessage
-    from prompts import pdf_metadata_extractor_prompt, convert_to_md_prompt
+    from langchain_core.output_parsers import PydanticOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
+
     from helpers import bin_list_into_chunks
+    from prompts import convert_to_md_prompt, pdf_metadata_extractor_prompt
 
     llm = get_chatbot("gemini-2.0-flash-exp")
     # First extract the metadata from the PDF
@@ -48,7 +50,9 @@ def process_pdf_via_gemini(
         response = requests.get(str(pdf_path))
         # Guess mime_type from file extension as a fallback option if not returned by get request
         filename = Path(urlparse(str(pdf_path)).path).name
-        mime_type: str | None = response.headers.get("content-type", mimetypes.guess_type(filename)[0])
+        mime_type: str | None = response.headers.get(
+            "content-type", mimetypes.guess_type(filename)[0]
+        )
         pdf_data = base64.b64encode(response.content).decode("utf8")
         # Add the source URL to the document prefix
         document_prefix += f"\n\nSource URL: {pdf_path}\n"
@@ -86,7 +90,7 @@ def process_pdf_via_gemini(
         pdf_metadata = metadata_extraction_chain.invoke({})
     if pdf_metadata.num_pages == 0:
         raise ValueError("The PDF has 0 pages")
-    if pdf_metadata.scanned_pdf == False:
+    if pdf_metadata.scanned_pdf is False:
         logging.warning("The PDF is not a scanned document.")
     convert_prompt = ChatPromptTemplate.from_messages(
         [

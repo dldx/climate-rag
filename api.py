@@ -1,30 +1,30 @@
+import logging
+import os
 import traceback
+from datetime import datetime, timezone
 from typing import Annotated, List, Optional
+from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException, Query, Request, Header
+import gradio as gr
+import mistune
+import msgspec
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse
+from pymarkdown.api import PyMarkdownApi
 
-from cache import r, answer_index_name, source_index_name
+from cache import r
+from helpers import get_previous_queries, humanize_unix_date
 from schemas import SourceMetadata
-from helpers import compile_answer, get_previous_queries, humanize_unix_date
 from tools import (
-    get_sources_based_on_filter,
     clean_urls,
     get_source_document_extra_metadata,
+    get_sources_based_on_filter,
 )
-import os
-import msgspec
-import mistune
-from datetime import datetime, timezone
-import gradio as gr
 from webapp import demo
-import logging
-from pymarkdown.api import PyMarkdownApi, PyMarkdownApiException
-from urllib.parse import urlencode
 
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 
@@ -40,7 +40,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 templates = Jinja2Templates(directory=".")
-templates.env.filters['urlencode'] = lambda x: urlencode(x) if x else ''
+templates.env.filters["urlencode"] = lambda x: urlencode(x) if x else ""
 
 
 class SourceMetadataWithSource(SourceMetadata):
@@ -209,8 +209,8 @@ def get_answer_markdown(
         return html_content
     else:
         return templates.TemplateResponse(
-                "static/qa.html", {"request": request, "html_content": html_content}
-            )
+            "static/qa.html", {"request": request, "html_content": html_content}
+        )
 
 
 @app.get("/search_qa", response_class=HTMLResponse)
@@ -244,7 +244,7 @@ def get_answer_search_results(
             q=q, limit=limit, page_no=page_no, include_metadata=include_metadata
         ).results
         n_answers = len(answers)
-        html_content = ''
+        html_content = ""
         for i_answer, answer in enumerate(answers):
             sources_str = ""
             for source in answer.sources:
@@ -253,14 +253,14 @@ def get_answer_search_results(
                 </li>
                """
             if (i_answer + 1) < n_answers:
-                html_content += f"""<div class="container"><article
+                html_content += """<div class="container"><article
                 >"""
             else:
-                next_page_params={
+                next_page_params = {
                     "q": q,
                     "page_no": page_no + 1,
                     "limit": limit,
-                    "include_metadata": include_metadata
+                    "include_metadata": include_metadata,
                 }
                 next_page_url = f"/search_qa?{urlencode(next_page_params)}"
                 html_content += f"""
@@ -287,6 +287,7 @@ def get_answer_search_results(
         logging.error(f"Error querying Redis: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error querying Redis: {e}")
 
+
 class Source(BaseModel):
     source: str
     page_content: str
@@ -309,24 +310,25 @@ def get_sources(
     ),
     page_no: int = Query(default=1, description="Which page number of results to get"),
 ):
-
     if q is None:
         q = ""
     if "@" not in q:
-        q = f"@source:({q})" #or @title, etc
+        q = f"@source:({q})"  # or @title, etc
 
     sources = get_sources_based_on_filter(q, r, limit=limit, page_no=page_no)
 
     results = []
     for source_url in sources:
-       source_data = r.hgetall(f"climate-rag::source:{source_url}")
-       if source_data:  # Check if source_data exists
+        source_data = r.hgetall(f"climate-rag::source:{source_url}")
+        if source_data:  # Check if source_data exists
             results.append(
                 Source(
                     source=source_url,
                     page_content=source_data["page_content"],
                     date_added=(
-                        datetime.fromtimestamp(int(source_data["date_added"]), tz=timezone.utc)
+                        datetime.fromtimestamp(
+                            int(source_data["date_added"]), tz=timezone.utc
+                        )
                         if source_data.get("date_added")
                         else None
                     ),
@@ -338,15 +340,17 @@ def get_sources(
                     title=source_data.get("title"),
                     company_name=source_data.get("company_name"),
                     publishing_date=(
-                        datetime.fromtimestamp(int(source_data["publishing_date"]), tz=timezone.utc)
+                        datetime.fromtimestamp(
+                            int(source_data["publishing_date"]), tz=timezone.utc
+                        )
                         if source_data.get("publishing_date")
                         else None
                     ),
                 )
             )
 
-
     return Sources(results=results)
+
 
 @app.get("/search_sources", response_class=HTMLResponse)
 def get_source_search_results(
@@ -376,7 +380,7 @@ def get_source_search_results(
         html_content = ""
         for i_source, source in enumerate(sources_results):
             if (i_source + 1) < n_sources:
-                html_content += f"<div class='container'><article>"
+                html_content += "<div class='container'><article>"
             else:
                 # HTMX magic for infinite scrolling
                 next_page_params = {
@@ -391,7 +395,11 @@ def get_source_search_results(
                         hx-swap="afterend"
                         hx-indicator="#loading">"""
 
-            publishing_date_str = source.publishing_date.strftime("%Y-%m-%d") if source.publishing_date else "Unknown"
+            publishing_date_str = (
+                source.publishing_date.strftime("%Y-%m-%d")
+                if source.publishing_date
+                else "Unknown"
+            )
             # try:
             #     source_md = PyMarkdownApi().fix_string(source.page_content).fixed_file
             # except:
@@ -414,6 +422,7 @@ def get_source_search_results(
     except Exception as e:
         logging.error(f"Error querying Redis: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error querying Redis: {e}")
+
 
 @app.get("/sources/{source}", response_model=Source)
 def get_source_by_id(source: str):
@@ -452,6 +461,7 @@ def get_source_by_id(source: str):
             else None
         ),
     )
+
 
 app = gr.mount_gradio_app(app, demo, path="/")
 

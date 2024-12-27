@@ -48,4 +48,5 @@ dependencies = [
     "mistune>=3.0.2",
     "pymarkdownlnt>=0.9.26",
     "stopit>=1.1.2",
+    "ruff>=0.8.4",
 ]
