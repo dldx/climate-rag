@@ -45,8 +45,6 @@ dependencies = [
     "youtube-transcript-api>=0.6.3",
     "pip-system-certs>=4.0",
     "fastapi[standard]>=0.115.5",
-    "mistune>=3.0.2",
-    "pymarkdownlnt>=0.9.26",
     "stopit>=1.1.2",
     "ruff>=0.8.4",
 ]

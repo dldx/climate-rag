@@ -12,6 +12,8 @@
       href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.yellow.min.css">
     <title>Climate RAG Search</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/dompurify@1.0.8"></script>
+    <script src="https://unpkg.com/marked@15.0.4"></script>
     <style>
       :root {
         --pico-font-size: 85%;
@@ -20,8 +22,7 @@
   </head>
   <body>
     <main style="display: flex; flex-direction: column; height: 100vh;">
-      <header class="container" style="align-self: stretch;
-    flex-grow: 1;
+      <header class="container" style="flex-grow: 1;
     align-content: center;">
         <div class="grid">
           <img alt='Climate RAG logo'
@@ -41,7 +42,7 @@
         </form></div>
       </header>
 
-      <div id="results">
+      <div id="results" style="flex-grow: 1;">
         {{ html_content|safe }}
       </div>
       <img id="loading"

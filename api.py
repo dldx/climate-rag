@@ -6,7 +6,6 @@ from typing import Annotated, List, Optional
 from urllib.parse import urlencode
 
 import gradio as gr
-import mistune
 import msgspec
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +13,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from pymarkdown.api import PyMarkdownApi
 
 from cache import r
 from helpers import get_previous_queries, humanize_unix_date
@@ -199,17 +197,22 @@ def get_answer_markdown(
     html_content += f"""
     <article class="container-fluid" style="margin: 2rem; width: 95%;">
         <header><h1><a href='/answers/{answer.qa_id}/html'>{answer.question}</a></h1></header>
-        {mistune.html(PyMarkdownApi().fix_string(answer.answer).fixed_file)}
+        <div>
+            <script>
+                document.currentScript.parentElement.innerHTML = DOMPurify.sanitize(marked.parse(`{answer.answer}`));
+            </script>
+        </div>
         <h6>Sources:</h6>
-            <ul>{sources_str}</ul>
-            <footer>{answer.date_added_ts}</footer>
-            </article>
+        <ul>{sources_str}</ul>
+        <footer>{answer.date_added_ts}</footer>
+    </article>
 """
     if hx_request and hx_boosted:
         return html_content
     else:
         return templates.TemplateResponse(
-            "static/qa.html", {"request": request, "html_content": html_content}
+            "static/qa.html",
+            {"request": request, "html_content": (html_content)},
         )
 
 
@@ -272,7 +275,11 @@ def get_answer_search_results(
 
             html_content += f"""
                 <header><h2><a hx-boost='true' hx-target="#results" hx-swap="innerHTML" href='/answers/{answer.qa_id}/html?q={q}&'>{answer.question}</a></h2></header>
-        {mistune.html(PyMarkdownApi().fix_string(answer.answer).fixed_file)}
+        <div>
+            <script>
+                document.currentScript.parentElement.innerHTML = DOMPurify.sanitize(marked.parse(`{answer.answer}`));
+            </script>
+        </div>
         <h6>Sources:</h6>
                  <ul>{sources_str}</ul>
                  <footer>{answer.date_added_ts}</footer>
@@ -281,7 +288,8 @@ def get_answer_search_results(
         if hx_request:
             return html_content
         return templates.TemplateResponse(
-            "static/qa.html", {"request": request, "html_content": html_content}
+            "static/qa.html",
+            {"request": request, "html_content": (html_content)},
         )
     except Exception as e:
         logging.error(f"Error querying Redis: {traceback.format_exc()}")
@@ -409,7 +417,10 @@ def get_source_search_results(
                 <p>Company: {source.company_name or "Unknown"}</p>
                 <p>Publishing Date: {publishing_date_str}</p>
                 <p>Date Added: {source.date_added_ts}</p>
-                <pre style="max-height: 100ch">{mistune.html(source_md) if source.page_content else ""}</pre>  </article></div>
+                <pre style="max-height: 100ch">
+            <script>
+                document.currentScript.parentElement.innerHTML = DOMPurify.sanitize(marked.parse(`{source_md if source.page_content else ""}`));
+            </script></pre>  </article></div>
             """
 
         if hx_request:
