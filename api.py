@@ -37,7 +37,7 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-templates = Jinja2Templates(directory=".")
+templates = Jinja2Templates(directory="./static")
 templates.env.filters["urlencode"] = lambda x: urlencode(x) if x else ""
 
 
@@ -211,7 +211,7 @@ def get_answer_markdown(
         return html_content
     else:
         return templates.TemplateResponse(
-            "static/qa.html",
+            "qa.html",
             {"request": request, "html_content": (html_content)},
         )
 
@@ -288,7 +288,7 @@ def get_answer_search_results(
         if hx_request:
             return html_content
         return templates.TemplateResponse(
-            "static/qa.html",
+            "qa.html",
             {"request": request, "html_content": (html_content)},
         )
     except Exception as e:
@@ -417,7 +417,7 @@ def get_source_search_results(
                 <p>Company: {source.company_name or "Unknown"}</p>
                 <p>Publishing Date: {publishing_date_str}</p>
                 <p>Date Added: {source.date_added_ts}</p>
-                <pre style="max-height: 100ch">
+                <pre style="max-height: 100ch; white-space: pre-wrap;">
             <script>
                 document.currentScript.parentElement.innerHTML = DOMPurify.sanitize(marked.parse(`{source_md if source.page_content else ""}`));
             </script></pre>  </article></div>
@@ -427,7 +427,7 @@ def get_source_search_results(
             return html_content
 
         return templates.TemplateResponse(
-            "static/sources.html", {"request": request, "html_content": html_content}
+            "sources.html", {"request": request, "html_content": html_content}
         )
 
     except Exception as e:
