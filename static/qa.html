@@ -1,4 +1,5 @@
         {% include 'header.html' %}
+<div class="slide-it">
         <form action="/search_qa" method="GET" class="grid" style="grid-column: 3 span;">
           <input type="search" value="{{ request.query_params['q'] }}" name="q"
             placeholder="Search previous queries... Use @question: and @answer: to be more targetted"
@@ -12,4 +13,5 @@
       </header>
 
       <div id="results" style="flex-grow: 1">{{ html_content|safe }}</div>
+    </div>
 {% include 'footer.html' %}

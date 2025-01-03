@@ -792,26 +792,25 @@ Remember to return the answer in English only.""",
 
     # Save generated answer to cache
     qa_id = generate_qa_id(state["initial_question"], generation)
+    sources = list(
+        set(
+            [
+                (doc.metadata["source"] if "source" in doc.metadata.keys() else "")
+                for doc in documents
+            ]
+        )
+    )
     qa_map = {
         "answer": generation,
         "question": state["initial_question"],
         "rag_filter": state["rag_filter"] if state.get("rag_filter", False) else "*",
         "doc_ids": msgspec.json.encode([doc.metadata["id"] for doc in documents]),
-        "sources": msgspec.json.encode(
-            list(
-                set(
-                    [
-                        (
-                            doc.metadata["source"]
-                            if "source" in doc.metadata.keys()
-                            else ""
-                        )
-                        for doc in documents
-                    ]
-                )
-            )
-        ),
+        "sources": msgspec.json.encode(sources),
         "date_added": int(datetime.timestamp(datetime.now(timezone.utc))),
+        "language": state["language"],
+        "llm": state["llm"],
+        "num_sources": len(sources),
+        "answer_length": len(generation),
     }
     r.hset(f"climate-rag::answer:{qa_id}", mapping=qa_map)
 

@@ -114,6 +114,10 @@ answer_schema = (
     TextField("answer"),
     NumericField("date_added", sortable=True),
     TextField("sources"),
+    TagField("language", sortable=True),
+    TagField("llm", sortable=True),
+    NumericField("num_sources", sortable=True),
+    NumericField("answer_length", sortable=True),
 )
 
 # Check if the index exists, and create it if it doesn't

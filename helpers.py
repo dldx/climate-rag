@@ -240,6 +240,7 @@ def get_previous_queries(
                             max(0, (page_no - 1)) * limit,
                             limit + max(0, (page_no - 1)) * limit,
                         )
+                        .dialect(2)
                     )
                     .docs
                 ]

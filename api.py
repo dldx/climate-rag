@@ -103,9 +103,9 @@ def get_answers(
     Returns:
         list: A list of dictionaries representing matching answers
     """
-    if q is None:
-        q = ""
-    if "@" not in q:
+    if q is None or q == "" or q == "None":
+        q = "*"
+    elif "@" not in q:
         q = f"@question:({q})"
 
     # Get dataframe of previous queries
@@ -190,10 +190,16 @@ def get_answer_markdown(
     html_content = ""
     sources_str = ""
     for source in answer.sources:
-        sources_str += f"""
-        <li>{source.title + " |" if source.title else ""} <a href='{source.source}'>{source.source}</a>
-        </li>
-        """
+        source_metadata = [
+            source.company_name,
+            source.title,
+            source.publishing_date.strftime("%B %Y")
+            if source.publishing_date
+            else None,
+            f"<a href='{source.source}'>{source.source}</a>",
+        ]
+        source_str = ", ".join(filter(None, source_metadata))
+        sources_str += f"""<li>{source_str}</li>"""
     html_content += f"""
     <article class="container-fluid" style="margin: 2rem; width: 95%;">
         <header><h1><a href='/answers/{answer.qa_id}/html'>{answer.question}</a></h1></header>
@@ -220,6 +226,7 @@ def get_answer_markdown(
 def get_answer_search_results(
     request: Request,
     hx_request: Annotated[str | None, Header()] = None,
+    hx_boosted: Annotated[str | None, Header()] = None,
     q: Optional[str] = Query(default=None, description="Search for questions"),
     limit: int = Query(
         default=10, ge=1, le=100, description="Limit the number of results per page"
@@ -250,11 +257,17 @@ def get_answer_search_results(
         html_content = ""
         for i_answer, answer in enumerate(answers):
             sources_str = ""
-            for source in answer.sources:
-                sources_str += f"""
-                <li>{source.title + "  |" if source.title else ""} <a href='{source.source}'>{source.source}</a>
-                </li>
-               """
+            # for source in answer.sources:
+            #     source_metadata = [
+            #         source.company_name,
+            #         source.title,
+            #         source.publishing_date.strftime("%B %Y")
+            #         if source.publishing_date
+            #         else None,
+            #         f"<a href='{source.source}'>{source.source}</a>",
+            #     ]
+            #     source_str = ", ".join(filter(None, source_metadata))
+            #     sources_str += f"""<li>{source_str}</li>"""
             if (i_answer + 1) < n_answers:
                 html_content += """<div class="container"><article
                 >"""
@@ -280,12 +293,12 @@ def get_answer_search_results(
                 document.currentScript.parentElement.innerHTML = DOMPurify.sanitize(marked.parse(`{answer.answer}`));
             </script>
         </div>
-        <h6>Sources:</h6>
-                 <ul>{sources_str}</ul>
+        <!--<<h6>Sources:</h6>
+                 ul>{sources_str}</ul>-->
                  <footer>{answer.date_added_ts}</footer>
                  </article></div>
         """
-        if hx_request:
+        if hx_request and not hx_boosted:
             return html_content
         return templates.TemplateResponse(
             "qa.html",
@@ -364,6 +377,7 @@ def get_sources(
 def get_source_search_results(
     request: Request,
     hx_request: Annotated[str | None, Header()] = None,
+    hx_boosted: Annotated[str | None, Header()] = None,
     q: Optional[str] = Query(default=None, description="Search for sources"),
     limit: int = Query(
         default=5, ge=1, le=100, description="Limit the number of results per page"
@@ -423,7 +437,7 @@ def get_source_search_results(
             </script></pre>  </article></div>
             """
 
-        if hx_request:
+        if hx_request and not hx_boosted:
             return html_content
 
         return templates.TemplateResponse(

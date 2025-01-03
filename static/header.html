@@ -18,6 +18,40 @@
       :root {
         --pico-font-size: 85%;
       }
+   @keyframes fade-in {
+     from { opacity: 0; }
+   }
+
+   @keyframes fade-out {
+     to { opacity: 0; }
+   }
+
+   @keyframes slide-from-right {
+     from { transform: translateX(90px); }
+   }
+
+   @keyframes slide-to-left {
+     to { transform: translateX(-90px); }
+   }
+
+   .slide-it {
+     view-transition-name: slide-it;
+   }
+
+   ::view-transition-old(slide-it) {
+     animation: 180ms cubic-bezier(0.4, 0, 1, 1) both fade-out,
+     600ms cubic-bezier(0.4, 0, 0.2, 1) both slide-to-left;
+   }
+   ::view-transition-new(slide-it) {
+     animation: 420ms cubic-bezier(0, 0, 0.2, 1) 90ms both fade-in,
+     600ms cubic-bezier(0.4, 0, 0.2, 1) both slide-from-right;
+   }
+   [aria-current="page"] {
+  pointer-events: none;
+  cursor: default;
+  font-weight: bold;
+  color: var(--pico-color-primary) !important;
+}
     </style>
   </head>
   <body>
@@ -33,9 +67,16 @@
                   style='height: 4em; margin: 1em; place-self: center;'>
               </li>
             </ul>
-            <ul>
-              <li><a href="/">Home</a></li>
-              <li><a href="/search_qa">Search previous Q&A</a></li>
-              <li><a href="/search_sources">Search sources</a></li>
+            <ul            >
+              <li><a href="/" hx-boost="true" hx-swap="innerHTML transition:true" hx-include="[data-page='home']">Home</a></li>
+              <li><a hx-boost="true" hx-swap="innerHTML transition:true" href="/search_qa" >Search previous Q&A</a></li>
+              <li><a hx-boost="true" hx-swap="innerHTML transition:true" href="/search_sources" >Search sources</a></li>
             </ul>
+            <script>
+              document.querySelectorAll('a').forEach(link => {
+                if (link.href === window.location.href.replace(window.location.search, "")) {
+                  link.ariaCurrent = 'page';
+                }
+              });
+            </script>
           </nav></div>
