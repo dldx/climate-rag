@@ -1,5 +1,5 @@
 import re
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
@@ -11,10 +11,10 @@ class BaseTablePreservingTextSplitter:
     """
 
     @staticmethod
-    def extract_tables(text: str) -> List[dict]:
+    def extract_tables(text: str) -> List[Dict[str, str]]:
         """
         Extract tables from the text.
-        Supports different table formats (markdown, HTML, pipe-separated).
+        Supports different table formats (markdown, HTML, pipe-separated, CSV).
         """
         # Markdown table detection
         markdown_table_pattern = r"(\|[^\n]+\|\n)+((?:\|[-:| ]+\|\n)(\|[^\n]+\|\n)*)"
@@ -24,6 +24,9 @@ class BaseTablePreservingTextSplitter:
 
         # Pipe-separated table detection
         pipe_table_pattern = r"(^.*\|.*\n)(^[-:| ]+\|\n)(^.*\|.*\n)*"
+
+        # CSV table detection
+        csv_table_pattern = r"((?:[^,\n]+,)+[^,\n]+\n)+"
 
         tables = []
 
@@ -54,6 +57,17 @@ class BaseTablePreservingTextSplitter:
             tables.append(
                 {
                     "type": "pipe",
+                    "content": match.group(0),
+                    "start": match.start(),
+                    "end": match.end(),
+                }
+            )
+
+        # Find CSV tables
+        for match in re.finditer(csv_table_pattern, text, re.MULTILINE):
+            tables.append(
+                {
+                    "type": "csv",
                     "content": match.group(0),
                     "start": match.start(),
                     "end": match.end(),
