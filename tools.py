@@ -1121,7 +1121,7 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
 
     parser = PydanticOutputParser(pydantic_object=SourceMetadata)
 
-    llm = get_chatbot("gemini-2.0-flash-exp")
+    llm = get_chatbot("gemini-1.5-flash")
     max_token_length = get_max_token_length("gemini-2.0-flash-exp")
 
     prompt = ChatPromptTemplate.from_messages(
@@ -1234,7 +1234,7 @@ def generate_additional_table_context(table: str) -> str:
     from llms import get_chatbot
     from prompts import table_augmentation_prompt
 
-    llm = get_chatbot("gemini-2.0-flash-exp")
+    llm = get_chatbot("gemini-1.5-flash")
 
     prompt = ChatPromptTemplate.from_messages(
         [("system", table_augmentation_prompt), ("human", table)]

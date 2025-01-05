@@ -1,8 +1,11 @@
 import re
 from typing import Callable, Dict, List, Optional
+import logging
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
+
+logger = logging.getLogger(__name__)
 
 
 class BaseTablePreservingTextSplitter:
@@ -106,6 +109,7 @@ class BaseTablePreservingTextSplitter:
         """
         # First, identify tables in the text
         tables = cls.extract_tables(text)
+        logger.info(f"{len(tables)} tables to augment with additional context")
 
         # Create a list of text segments that alternate between non-table text and tables
         text_segments = []
@@ -159,6 +163,7 @@ class BaseTablePreservingTextSplitter:
                 # If a table augmenter function is provided, use it to augment the table content
                 # This can be used to add additional context to the table to make retrieval more accurate
                 if table_augmenter:
+                    logger.info(f"""Augmenting table:\n{segment["content"]}""")
                     segment["content"] = table_augmenter(segment["content"])
                 # Determine if table can be added based on chunk_size
                 can_add_table = (
