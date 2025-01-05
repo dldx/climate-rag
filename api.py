@@ -187,25 +187,28 @@ def get_answer_markdown(
 
     answer = get_answer_by_id(qa_id=qa_id, include_metadata=include_metadata)
     # Convert markdown to html
-    html_content = ""
+    html_content = r""
     sources_str = ""
     for source in answer.sources:
         source_metadata = [
+            f"<strong>{source.title}</strong>",
             source.company_name,
-            source.title,
             source.publishing_date.strftime("%B %Y")
             if source.publishing_date
             else None,
-            f"<a href='{source.source}'>{source.source}</a>",
+            f"<a target='_blank' href='{source.source}'>{source.source}</a>",
         ]
         source_str = ", ".join(filter(None, source_metadata))
         sources_str += f"""<li>{source_str}</li>"""
+    # To deal with double backslashes and backticks in the markdown, we need to escape them so that they are not interpreted as escape characters.
+    # This is necessary to prevent latex in markdown from being interpreted incorrectly.
+    answer.answer = answer.answer.replace("\\", "\\\\").replace("`", "\\`")
     html_content += f"""
     <article class="container-fluid" style="margin: 2rem; width: 95%;">
         <header><h1><a href='/answers/{answer.qa_id}/html'>{answer.question}</a></h1></header>
         <div>
             <script>
-                document.currentScript.parentElement.innerHTML = DOMPurify.sanitize(marked.parse(`{answer.answer}`));
+            renderMarkdownWithKatex(`{answer.answer}`);
             </script>
         </div>
         <h6>Sources:</h6>
@@ -218,7 +221,7 @@ def get_answer_markdown(
     else:
         return templates.TemplateResponse(
             "qa.html",
-            {"request": request, "html_content": (html_content)},
+            {"request": request, "html_content": html_content},
         )
 
 
@@ -286,11 +289,14 @@ def get_answer_search_results(
     hx-indicator="#loading"
             >"""
 
+            # To deal with double backslashes and backticks in the markdown, we need to escape them so that they are not interpreted as escape characters.
+            # This is necessary to prevent latex in markdown from being interpreted incorrectly.
+            answer.answer = answer.answer.replace("\\", "\\\\").replace("`", "\\`")
             html_content += f"""
                 <header><h2><a hx-boost='true' hx-target="#results" hx-swap="innerHTML" href='/answers/{answer.qa_id}/html?q={q}&'>{answer.question}</a></h2></header>
         <div>
             <script>
-                document.currentScript.parentElement.innerHTML = DOMPurify.sanitize(marked.parse(`{answer.answer}`));
+            renderMarkdownWithKatex(`{answer.answer}`);
             </script>
         </div>
         <!--<<h6>Sources:</h6>
@@ -370,6 +376,8 @@ def get_sources(
                 )
             )
 
+    # results = sorted(results, key=lambda x: x.date_added, reverse=True)
+
     return Sources(results=results)
 
 
@@ -427,7 +435,7 @@ def get_source_search_results(
             # except:
             source_md = source.page_content
             html_content += f"""
-                <header><h2><a href='{source.source}'>{source.title or source.source}</a></h2></header>
+                <header><h2><a target='_blank' href='{source.source}'>{source.title or source.source}</a></h2></header>
                 <p>Company: {source.company_name or "Unknown"}</p>
                 <p>Publishing Date: {publishing_date_str}</p>
                 <p>Date Added: {source.date_added_ts}</p>

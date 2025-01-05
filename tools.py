@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import glob
+import logging
 import os
 import re
 import shutil
@@ -37,6 +38,7 @@ from pdf_download import download_urls_in_headed_chrome, download_urls_with_requ
 from schemas import SourceMetadata
 from text_splitters import TablePreservingSemanticChunker, TablePreservingTextSplitter
 
+logger = logging.getLogger(__name__)
 enc = tiktoken.encoding_for_model("gpt-4o")
 
 web_search_tool = TavilySearchResults(k=3)
@@ -916,9 +918,29 @@ def split_documents(
     Returns:
         A list of split documents.
     """
+    import mimetypes
+    from pathlib import Path
+
     import tiktoken
 
     enc = tiktoken.encoding_for_model("gpt-4o")
+
+    documents_to_avoid_splitting = []
+    for doc in documents:
+        # Check if the filetype is a CSV, TSV, JSON, etc
+        if doc.metadata.get("source") and (
+            mimetypes.guess_type(Path(doc.metadata["source"]).name)[0]
+            in [
+                "text/csv",
+                "text/tab-separated-values",
+                "application/json",
+            ]
+        ):
+            logger.info(
+                f"Skipping splitting for {doc.metadata['source']} as it is a {mimetypes.guess_type(Path(doc.metadata['source']).name)[0]} file"
+            )
+            documents_to_avoid_splitting.append(doc)
+            documents.remove(doc)
 
     if splitter == "semantic":
         text_splitter = TablePreservingSemanticChunker(
@@ -960,6 +982,8 @@ def split_documents(
         for sublist in split_docs
         for item in (sublist if isinstance(sublist, list) else [sublist])
     ]
+    # Add back the documents that should not be split
+    split_docs += documents_to_avoid_splitting
     return split_docs
 
 

@@ -224,63 +224,61 @@ def get_previous_queries(
     from redis.exceptions import ResponseError
 
     try:
-        previous_queries_df = (
-            pd.DataFrame.from_records(
-                [
-                    doc.__dict__
-                    for doc in r.ft("idx:answer")
-                    .search(
-                        Query(query_filter)
-                        .return_fields(
-                            *["date_added", "question", "answer", "pdf_uri", "docx_uri"]
-                            + additional_fields
-                        )
-                        .sort_by("date_added", asc=False)
-                        .paging(
-                            max(0, (page_no - 1)) * limit,
-                            limit + max(0, (page_no - 1)) * limit,
-                        )
-                        .dialect(2)
+        previous_queries_df = pd.DataFrame.from_records(
+            [
+                doc.__dict__
+                for doc in r.ft("idx:answer")
+                .search(
+                    Query(query_filter)
+                    .return_fields(
+                        *["date_added", "question", "answer", "pdf_uri", "docx_uri"]
+                        + additional_fields
                     )
-                    .docs
-                ]
-            )
-            .assign(
+                    .sort_by("date_added", asc=False)
+                    .paging(
+                        max(0, (page_no - 1)) * limit,
+                        limit + max(0, (page_no - 1)) * limit,
+                    )
+                    .dialect(2)
+                )
+                .docs
+            ]
+        )
+        if len(previous_queries_df) > 0:
+            previous_queries_df = previous_queries_df.assign(
                 qa_id=lambda df: df.id.apply(lambda x: x.split(":", 3)[-1]),
                 date_added=lambda df: df.date_added.astype(int),
                 date_added_ts=lambda df: df.date_added.apply(
                     lambda x: humanize_unix_date(x)
                 ),
-            )
-            .drop(columns=["payload", "id"])
-        )
-        # If "sources" in additional_fields, convert it from json
-        if "sources" in additional_fields:
-            previous_queries_df["sources"] = previous_queries_df["sources"].apply(
-                lambda x: clean_urls(
-                    msgspec.json.decode(x) if x else [],
-                    os.environ.get("STATIC_PATH", ""),
+            ).drop(columns=["payload", "id"])
+            # If "sources" in additional_fields, convert it from json
+            if "sources" in additional_fields:
+                previous_queries_df["sources"] = previous_queries_df["sources"].apply(
+                    lambda x: clean_urls(
+                        msgspec.json.decode(x) if x else [],
+                        os.environ.get("STATIC_PATH", ""),
+                    )
                 )
-            )
+            return previous_queries_df
 
     except (ResponseError, AttributeError):
         import traceback
 
         print(traceback.format_exc())
-        previous_queries_df = pd.DataFrame(
-            columns=[
-                "qa_id",
-                "date_added",
-                "date_added_ts",
-                "question",
-                "answer",
-                "pdf_uri",
-                "docx_uri",
-            ]
-            + additional_fields
-        )
 
-    return previous_queries_df
+    return pd.DataFrame(
+        columns=[
+            "qa_id",
+            "date_added",
+            "date_added_ts",
+            "question",
+            "answer",
+            "pdf_uri",
+            "docx_uri",
+        ]
+        + additional_fields
+    )
 
 
 def render_qa_pdfs(qa_id) -> Tuple[str, str]:

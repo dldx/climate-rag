@@ -42,7 +42,7 @@ def process_pdf_via_gemini(
     from helpers import bin_list_into_chunks
     from prompts import convert_to_md_prompt, pdf_metadata_extractor_prompt
 
-    llm = get_chatbot("gemini-2.0-flash-exp")
+    llm = get_chatbot("gemini-1.5-flash")  # 2.0-flash-exp")
     # First extract the metadata from the PDF
     parser = PydanticOutputParser(pydantic_object=PDFMetadata)
     # If pdf_path is a url, download the file and read the contents
