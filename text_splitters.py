@@ -95,7 +95,8 @@ class BaseTablePreservingTextSplitter:
         """
         # First, identify tables in the text
         tables = cls.extract_tables(text)
-        logger.info(f"{len(tables)} tables to augment with additional context")
+        if len(tables) > 0:
+            logger.info(f"{len(tables)} tables to augment with additional context")
 
         # Create a list of text segments that alternate between non-table text and tables
         text_segments = []
@@ -149,8 +150,8 @@ class BaseTablePreservingTextSplitter:
                 # If a table augmenter function is provided, use it to augment the table content
                 # This can be used to add additional context to the table to make retrieval more accurate
                 if table_augmenter:
-                    logger.info(f"""Augmenting table:\n{segment["content"]}""")
                     segment["content"] = table_augmenter(segment["content"])
+                    logger.debug(f"""Augmenting table:\n{segment["content"]}""")
                 # Determine if table can be added based on chunk_size
                 can_add_table = (
                     chunk_size is None

@@ -192,7 +192,7 @@ Do not include any text aside from the JSON in your response.
 
 convert_to_md_prompt = """Please convert the document supplied into markdown and format tables as markdown tables.
 
-Summarise any images or charts (including a title and brief description of what is shown). Return all tables in markdown format.
+Summarise any images or charts (including a title and brief description of what is shown). Please transcribe the data from all charts in table format. Return all tables in markdown format.
 
 Return the page numbers in the output with the format `## Page n of {n_pages}`.
 
