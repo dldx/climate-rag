@@ -190,7 +190,7 @@ You should return the extracted metadata in a structured JSON format:
 Do not include any text aside from the JSON in your response.
 """
 
-convert_to_md_prompt = """Please convert the document supplied into markdown and format tables as markdown tables.
+convert_to_md_prompt = """Please transcribe the document supplied into markdown as accurately as possible.
 
 Summarise any images or charts (including a title and brief description of what is shown). Please transcribe the data from all charts in table format. Return all tables in markdown format.
 

@@ -3,7 +3,7 @@ import os
 import traceback
 from datetime import datetime, timezone
 from typing import Annotated, List, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote_plus, urlencode
 
 import gradio as gr
 import msgspec
@@ -205,7 +205,7 @@ def get_answer_markdown(
     answer.answer = answer.answer.replace("\\", "\\\\").replace("`", "\\`")
     html_content += f"""
     <article class="container-fluid" style="margin: 2rem; width: 95%;">
-        <header><h1><a href='/answers/{answer.qa_id}/html'>{answer.question}</a></h1></header>
+        <header><h1><a href='/answers/{quote_plus(answer.qa_id)}/html'>{answer.question}</a></h1></header>
         <div>
             <script>
             renderMarkdownWithKatex(`{answer.answer}`);
@@ -293,7 +293,7 @@ def get_answer_search_results(
             # This is necessary to prevent latex in markdown from being interpreted incorrectly.
             answer.answer = answer.answer.replace("\\", "\\\\").replace("`", "\\`")
             html_content += f"""
-                <header><h2><a hx-boost='true' hx-target="#results" hx-swap="innerHTML" href='/answers/{answer.qa_id}/html?q={q}&'>{answer.question}</a></h2></header>
+                <header><h2><a hx-boost='true' hx-target="#results" hx-swap="innerHTML" href='/answers/{quote_plus(answer.qa_id)}/html?q={q}&'>{answer.question}</a></h2></header>
         <div>
             <script>
             renderMarkdownWithKatex(`{answer.answer}`);
