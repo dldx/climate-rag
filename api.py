@@ -333,7 +333,7 @@ class Sources(BaseModel):
 def get_sources(
     q: Optional[str] = Query(default=None, description="Search for sources"),
     limit: int = Query(
-        default=5, ge=1, le=100, description="Limit the number of results"
+        default=5, ge=1, le=1000, description="Limit the number of results"
     ),
     page_no: int = Query(default=1, description="Which page number of results to get"),
 ):
@@ -388,7 +388,7 @@ def get_source_search_results(
     hx_boosted: Annotated[str | None, Header()] = None,
     q: Optional[str] = Query(default=None, description="Search for sources"),
     limit: int = Query(
-        default=5, ge=1, le=100, description="Limit the number of results per page"
+        default=5, ge=1, le=1000, description="Limit the number of results per page"
     ),
     page_no: int = Query(default=1, description="Which page number of results to get"),
 ):
