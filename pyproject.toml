@@ -47,4 +47,5 @@ dependencies = [
     "fastapi[standard]>=0.115.5",
     "stopit>=1.1.2",
     "ruff>=0.8.4",
+    "voyageai>=0.3.2",
 ]

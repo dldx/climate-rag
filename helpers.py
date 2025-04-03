@@ -355,16 +355,21 @@ def render_qa_pdfs(qa_id) -> Tuple[str, str]:
     return pdf_download_url, docx_download_url
 
 
-def modify_document_source_urls(old_url, new_url, db, r):
+def modify_document_source_urls(old_url, new_url, db, r, project_id="langchain"):
     from redis import ResponseError
 
     # Rename redis key
     try:
-        r.rename(f"climate-rag::source:{old_url}", f"climate-rag::source:{new_url}")
-        r.hset(f"climate-rag::source:{new_url}", "source", new_url)
-        r.hset(f"climate-rag::source:{new_url}", "source_alt", old_url)
+        r.rename(
+            f"climate-rag::{project_id}::source:{old_url}",
+            f"climate-rag::{project_id}::source:{new_url}",
+        )
+        r.hset(f"climate-rag::{project_id}::source:{new_url}", "source", new_url)
+        r.hset(f"climate-rag::{project_id}::source:{new_url}", "source_alt", old_url)
     except ResponseError:
-        print(f"Redis key not found for source: {old_url}")
+        print(f"Redis key not found for source: {old_url} in project: {project_id}")
+
+    # Update documents in the specific project collection
     docs = db.get(where={"source": {"$in": [old_url]}}, include=["metadatas"])
     if len(docs["ids"]) > 0:
         for doc in docs["metadatas"]:
@@ -373,7 +378,9 @@ def modify_document_source_urls(old_url, new_url, db, r):
 
         db._collection.update(ids=docs["ids"], metadatas=docs["metadatas"])
     else:
-        print(f"No chroma documents found with source: {old_url}")
+        print(
+            f"No chroma documents found with source: {old_url} in project: {project_id}"
+        )
 
 
 def bin_list_into_chunks(lst, n_chunks):
