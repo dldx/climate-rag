@@ -516,7 +516,7 @@ def climate_chat(
 
     for key, value in run_query(
         message,
-        llm="gemini-2.0-flash-exp",
+        llm="gemini-2.0-flash",
         mode="gui",
         rag_filter=rag_filter,
         improve_question=improve_question,

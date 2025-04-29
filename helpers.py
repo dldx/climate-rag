@@ -10,8 +10,10 @@ import msgspec
 import pandas as pd
 import pdf2docx
 from dotenv import load_dotenv
+from langchain_chroma import Chroma
 from markdown_pdf import MarkdownPdf, Section
 from pathvalidate import sanitize_filename as _sanitize_filename
+from redis import Redis
 
 from schemas import SourceMetadata
 
@@ -355,7 +357,19 @@ def render_qa_pdfs(qa_id) -> Tuple[str, str]:
     return pdf_download_url, docx_download_url
 
 
-def modify_document_source_urls(old_url, new_url, db, r, project_id="langchain"):
+def modify_document_source_urls(
+    old_url: str, new_url: str, db: Chroma, r: Redis, project_id: str = "langchain"
+):
+    """
+    Modify the source URLs of the documents in the database.
+
+    Args:
+        old_url (str): The old URL to be replaced.
+        new_url (str): The new URL to replace the old URL with.
+        db (Chroma): The database.
+        r (Redis): The Redis connection.
+        project_id (str): The project ID.
+    """
     from redis import ResponseError
 
     # Rename redis key

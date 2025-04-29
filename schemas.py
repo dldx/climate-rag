@@ -34,7 +34,7 @@ class SourceMetadata(BaseModel):
         description="The 10 most important entities mentioned in the document. An entity is a person, place, or thing that is relevant to the document. For example, if the document is about a company, the key entities might be the company name. If the document is about a person, the key entities might be the person's name. If the document is about a place, the key entities might be the place name. If the document is about a product, the key entities might be the product and company names. If the document is about a news event, the key entities might be the people, places, and things involved in the event. Entities should be proper nouns, not general concepts. There should be no more than 10 entities.",
     )
     type_of_document: str = Field(
-        description="The type of document, such as a 'report', 'blog post', 'news article', 'product page', 'index/store/gallery page', or other type of document"
+        description="The type of document, such as a 'report', 'blog post', 'news article', 'product page', 'index/store/gallery page'. If the document type is not in the list, return 'other'"
     )
     keywords: List[str] = Field(
         description="10 keywords that describe the topics in the document."
