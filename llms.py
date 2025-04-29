@@ -8,7 +8,7 @@ load_dotenv()
 
 def get_chatbot(
     llm: Literal[
-        "gemini-2.0-flash-exp",
+        "gemini-2.0-flash",
         "gemini-1.5-pro",
         "gemini-1.5-flash",
         "gpt-4o",
@@ -24,7 +24,7 @@ def get_chatbot(
     """Get a chatbot instance.
 
     Args:
-        llm: The language model to use. Options are "gemini-1.5-pro", "gemini-1.5-flash", "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude" or "llama-3.1".
+        llm: The language model to use. Options are "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude" or "llama-3.1".
         **kwargs: optional keyword arguments to pass to the chat model
 
     Returns:
@@ -49,7 +49,7 @@ def get_chatbot(
             top_p=0.7,
             max_tokens=4096,
         )
-    elif llm in ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-exp"]:
+    elif llm in ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash"]:
         from langchain_google_vertexai import ChatVertexAI
 
         # The GOOGLE_PROJECT_ID environment variable must be set
@@ -83,7 +83,7 @@ def get_chatbot(
 def get_max_token_length(llm: str) -> int:
     if llm == "gpt-4o":
         return 24_000
-    elif llm in ("gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"):
+    elif llm in ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"):
         # Can handle 1 million tokens but takes too long to process so not worth it!
         return 500_000
     else:
