@@ -1435,62 +1435,108 @@ def initialize_project_indices(r, project_id):
     project_zh_source_index_name = f"{zh_source_index_name}_{project_id}"
     project_ja_source_index_name = f"{ja_source_index_name}_{project_id}"
 
-    try:
-        # Check if index already exists
-        r.ft(project_source_index_name).info()
-        print(f"Index {project_source_index_name} already exists")
-        return True
-    except ResponseError:
-        # Create the index for the project
+    # Check which indices exist
+    existing_indices = set()
+    missing_indices = set()
+
+    for index_name in [
+        project_source_index_name,
+        project_zh_source_index_name,
+        project_ja_source_index_name,
+    ]:
         try:
-            # Define the index fields
-            schema = (
-                TextField("page_content", weight=1.0),
-                TextField("title", weight=5.0),
-                TextField("company_name", weight=2.0),
-                TextField("source", weight=10.0),
-                NumericField("page_length"),
-                NumericField("date_added"),
-                TagField("loader"),
-            )
+            r.ft(index_name).info()
+            existing_indices.add(index_name)
+        except ResponseError:
+            missing_indices.add(index_name)
 
-            # Create English index
-            r.ft(project_source_index_name).create_index(
-                schema,
-                definition=IndexDefinition(
-                    prefix=[f"climate-rag::{project_id}::source:"],
-                    index_type=IndexType.HASH,
-                ),
-            )
+    if not missing_indices:
+        print(f"All indices already exist for project {project_id}")
+        return True
 
-            # Create Chinese index with Chinese analyzer
-            r.ft(project_zh_source_index_name).create_index(
-                schema,
-                definition=IndexDefinition(
-                    prefix=[f"climate-rag::{project_id}::source:"],
-                    index_type=IndexType.HASH,
-                    language="chinese",
-                ),
-            )
+    if existing_indices:
+        print(
+            f"Found existing indices for project {project_id}: {', '.join(existing_indices)}"
+        )
+        print(f"Creating missing indices: {', '.join(missing_indices)}")
+    else:
+        print(
+            f"No existing indices found for project {project_id}, creating all indices"
+        )
 
-            # Create Japanese index with Japanese analyzer
-            r.ft(project_ja_source_index_name).create_index(
-                schema,
-                definition=IndexDefinition(
-                    prefix=[f"climate-rag::{project_id}::source:"],
-                    index_type=IndexType.HASH,
-                    language="japanese",
-                ),
-            )
+    try:
+        # Define the index fields
+        schema = (
+            TextField("page_content", weight=1.0),
+            TextField("title", weight=5.0),
+            TextField("company_name", weight=2.0),
+            TextField("source", weight=10.0),
+            NumericField("page_length"),
+            NumericField("date_added"),
+            TagField("loader"),
+        )
 
-            # Add project to the list of projects
-            r.sadd("climate-rag::projects", project_id)
+        # Create indices that don't exist
+        for index_name in missing_indices:
+            if index_name == project_source_index_name:
+                # Create English index
+                r.ft(index_name).create_index(
+                    schema,
+                    definition=IndexDefinition(
+                        prefix=[
+                            (
+                                "climate-rag::source:"
+                                if project_id == "langchain"
+                                else f"climate-rag::{project_id}::source:"
+                            )
+                        ],
+                        index_type=IndexType.HASH,
+                    ),
+                )
+            elif index_name == project_zh_source_index_name:
+                # Create Chinese index with Chinese analyzer
+                r.ft(index_name).create_index(
+                    schema,
+                    definition=IndexDefinition(
+                        prefix=[
+                            (
+                                "climate-rag::source:"
+                                if project_id == "langchain"
+                                else f"climate-rag::{project_id}::source:"
+                            )
+                        ],
+                        index_type=IndexType.HASH,
+                        language="chinese",
+                    ),
+                )
+            elif index_name == project_ja_source_index_name:
+                # Create Japanese index with Japanese analyzer
+                r.ft(index_name).create_index(
+                    schema,
+                    definition=IndexDefinition(
+                        prefix=[
+                            (
+                                "climate-rag::source:"
+                                if project_id == "langchain"
+                                else f"climate-rag::{project_id}::source:"
+                            )
+                        ],
+                        index_type=IndexType.HASH,
+                        language="japanese",
+                    ),
+                )
 
-            print(f"Created indices for project {project_id}")
-            return True
-        except Exception as e:
-            print(f"Error creating indices for project {project_id}: {e}")
-            return False
+        # Add project to the list of projects
+        r.sadd("climate-rag::projects", project_id)
+
+        print(f"Successfully created all missing indices for project {project_id}")
+        return True
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        print(f"Error creating indices for project {project_id}: {e}")
+        return False
 
 
 def move_document_between_projects(
