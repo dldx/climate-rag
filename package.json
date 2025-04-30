@@ -1,0 +1,17 @@
+{
+    "name": "climate-rag",
+    "version": "1.0.0",
+    "description": "Climate RAG Search Application",
+    "type": "module",
+    "scripts": {
+        "build": "bun build ./src/index.js --outfile ./static/bundle.js --minify"
+    },
+    "dependencies": {
+        "htmx.org": "^1.9.10",
+        "dompurify": "^3.0.8",
+        "katex": "^0.16.9",
+        "marked": "^15.0.4",
+        "marked-katex-extension": "^5.1.4",
+        "@picocss/pico": "^2.0.6"
+    }
+}
