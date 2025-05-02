@@ -207,7 +207,11 @@ def humanize_unix_date(date):
 
 
 def get_previous_queries(
-    r, query_filter: str = "*", limit: int = 30, page_no: int = 0, additional_fields=[]
+    r,
+    query_filter: str = "*",
+    limit: int = 30,
+    page_no: int = 0,
+    additional_fields=[],
 ) -> pd.DataFrame:
     """
     Get the previous queries from the Redis index.

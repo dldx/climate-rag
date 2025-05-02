@@ -9,7 +9,7 @@ import gradio as gr
 import msgspec
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -89,6 +89,9 @@ def get_answers(
     include_metadata: bool = Query(
         default=False, description="Include document metadata"
     ),
+    project_id: str = Query(
+        default="langchain", description="The project ID to query for"
+    ),
 ):
     """
     Retrieve answers from Redis based on search terms.
@@ -110,7 +113,11 @@ def get_answers(
 
     # Get dataframe of previous queries
     df = get_previous_queries(
-        r, query_filter=q, limit=limit, page_no=page_no, additional_fields=["sources"]
+        r,
+        query_filter=q,
+        limit=limit,
+        page_no=page_no,
+        additional_fields=["sources"],
     )
     if include_metadata:
         df.sources = df.sources.apply(lambda x: map(_get_source_metadata, x))
@@ -336,17 +343,26 @@ def get_sources(
         default=5, ge=1, le=1000, description="Limit the number of results"
     ),
     page_no: int = Query(default=1, description="Which page number of results to get"),
+    project_id: str = Query(
+        default="langchain", description="The project ID to query for"
+    ),
 ):
     if q is None:
         q = ""
     if "@" not in q:
         q = f"@source:({q})"  # or @title, etc
 
-    sources = get_sources_based_on_filter(q, r, limit=limit, page_no=page_no)
+    sources = get_sources_based_on_filter(
+        q, r, limit=limit, page_no=page_no, project_id=project_id
+    )
 
     results = []
     for source_url in sources:
-        source_data = r.hgetall(f"climate-rag::source:{source_url}")
+        source_data = r.hgetall(
+            f"climate-rag::source:{source_url}"
+            if project_id == "langchain"
+            else f"climate-rag::{project_id}::source:{source_url}"
+        )
         if source_data:  # Check if source_data exists
             results.append(
                 Source(
@@ -391,6 +407,9 @@ def get_source_search_results(
         default=5, ge=1, le=1000, description="Limit the number of results per page"
     ),
     page_no: int = Query(default=1, description="Which page number of results to get"),
+    project_id: str = Query(
+        default="langchain", description="The project ID to query for"
+    ),
 ):
     """
     Retrieve sources from Redis based on search terms.
@@ -399,12 +418,15 @@ def get_source_search_results(
         q: (Optional) Search term to match against the source.
         limit: (Optional) Maximum number of results to return.
         page_no: (Optional) Page number of results to return.
+        project_id: (Optional) The project ID to query for.
 
     Returns:
          HTMLResponse: A rendered HTML string of the sources
     """
     try:
-        sources_results = get_sources(q=q, limit=limit, page_no=page_no).results
+        sources_results = get_sources(
+            q=q, limit=limit, page_no=page_no, project_id=project_id
+        ).results
         n_sources = len(sources_results)
 
         html_content = ""
@@ -494,6 +516,31 @@ def get_source_by_id(source: str):
             else None
         ),
     )
+
+
+class Projects(BaseModel):
+    projects: List[str]
+
+
+@app.get("/projects", response_class=HTMLResponse)
+def get_projects(
+    request: Request,
+    hx_request: Annotated[bool, Header()] = None,
+    hx_boosted: Annotated[bool, Header()] = None,
+):
+    """
+    Get all available project IDs from Redis.
+
+    Returns:
+        List[str]: A list of project IDs
+    """
+    projects = list(r.smembers("climate-rag::projects"))
+    if hx_request:
+        return "".join(
+            f"<option value='{project}'>{project}</option>" for project in projects
+        )
+    else:
+        return JSONResponse(Projects(projects=projects).model_dump())
 
 
 app = gr.mount_gradio_app(app, demo, path="/")

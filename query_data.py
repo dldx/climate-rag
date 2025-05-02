@@ -18,7 +18,7 @@ from tools import format_docs, get_sources_based_on_filter, get_vector_store
 
 
 load_dotenv()  # take environment variables from .env.
-app = create_graph()
+rag_graph = create_graph()
 
 
 # Different display functions for Jupyter and terminal
@@ -43,6 +43,12 @@ def main():
         type=str,
         help="The query text.",
         nargs="?" if "--get-docs" in sys.argv or "--get-source-doc" in sys.argv else 1,
+    )
+    parser.add_argument(
+        "--project-id",
+        type=str,
+        help="The project ID to query for.",
+        default="langchain",
     )
     parser.add_argument(
         "--rag-filter", type=str, help="Optional rag filter to use", default=""
@@ -153,7 +159,7 @@ def main():
         if args.rerank is None:
             args.rerank = True
 
-    db = get_vector_store()
+    db = get_vector_store(args.project_id)
     if len(args.get_docs) > 0:
         get_documents_from_db(db, args.get_docs)
     elif args.get_source_doc is not None:
@@ -161,7 +167,7 @@ def main():
             db,
             args.get_source_doc,
             fields=["source", "page_content"],
-            project_id="langchain",
+            project_id=args.project_id,
         )
     else:
         # If query_text is too short, return a message
@@ -398,6 +404,7 @@ def run_query(
     inputs = {
         "question": question,
         "question_en": question,
+        "project_id": project_id,
         "llm": llm,
         "rag_filter": rag_filter,
         "shall_improve_question": improve_question,
@@ -409,15 +416,15 @@ def run_query(
         "initial_generation": initial_generation,
         "history": history,
         "mode": mode,
-        "project_id": project_id,
     }
 
     thread = {"configurable": {"thread_id": thread_id}}
 
     if continue_after_interrupt:
-        app.update_state(
+        rag_graph.update_state(
             thread,
             {
+                "project_id": project_id,
                 "happy_with_answer": happy_with_answer,
                 "do_rerank": do_rerank,
                 "do_crawl": do_crawl,
@@ -428,7 +435,9 @@ def run_query(
                 "rag_filter": rag_filter,
             },
         )
-    for output in app.stream(None if continue_after_interrupt else inputs, thread):
+    for output in rag_graph.stream(
+        None if continue_after_interrupt else inputs, thread
+    ):
         for key, value in output.items():
             # Node
             print(f"Node '{key}':")

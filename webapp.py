@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from gradio_log import Log
 from ulid import ULID
 
-from cache import r
+from cache import r, source_index_name
 from constants import language_choices
 from helpers import (
     clean_urls,
@@ -49,47 +49,6 @@ def download_latest_answer(
     return gr.DownloadButton(
         value=sanitize_url(docx_download_url), visible=True
     ), gr.DownloadButton(value=sanitize_url(pdf_download_url), visible=True)
-
-
-def preview_csv_import(file_path):
-    """Generate a preview of the CSV import"""
-    import os
-
-    import pandas as pd
-
-    try:
-        if not os.path.exists(file_path):
-            return "Error: File not found", None
-
-        # Read CSV file
-        df = pd.read_csv(file_path)
-
-        # Check required columns
-        required_columns = ["Title", "Company", "Source", "Content"]
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            return (
-                f"Error: Missing required columns: {', '.join(missing_columns)}",
-                None,
-            )
-
-        # Create preview DataFrame
-        preview_df = df[["Title", "Company", "Source"]].copy()
-
-        # Add content preview
-        preview_df["Content Preview"] = df["Content"].apply(
-            lambda x: x[:100] + "..." if len(x) > 100 else x
-        )
-
-        # Show only first 10 rows
-        preview_df = preview_df.head(10)
-
-        return (
-            f"Preview of {len(df)} documents (showing first 10)",
-            gr.DataFrame(value=preview_df),
-        )
-    except Exception as e:
-        return f"Error previewing import: {str(e)}", None
 
 
 # Project management functions
@@ -146,18 +105,13 @@ def create_project(project_name):
 
 # Helper function to count documents in a project
 def count_project_documents(project_id):
-    from query_data import query_source_documents
+    """Count all documents in a project"""
 
-    db = get_vector_store(project_id)
-    results = query_source_documents(
-        db,
-        "*",
-        print_output=False,
-        fields=["source"],
-        limit=10000,
-        project_id=project_id,
-    )
-    return len(results)
+    try:
+        return r.ft(f"{source_index_name}_{project_id}").info()["num_docs"]
+    except Exception as e:
+        print(f"Error counting documents in project {project_id}: {e}")
+        return 0
 
 
 def list_project_documents(project_id):
@@ -191,14 +145,14 @@ def list_project_documents(project_id):
 
 def move_document(source_uri, source_project, target_project):
     """Move a document from one project to another"""
-    from tools import move_document_between_projects
+    from tools import transfer_document_between_projects
 
     if source_project == target_project:
         return f"Source and target projects are the same: {source_project}"
 
     source_db = get_vector_store(source_project)
-    success = move_document_between_projects(
-        source_uri, source_project, target_project, r, source_db
+    success = transfer_document_between_projects(
+        source_uri, source_project, target_project, r, source_db, delete_source=True
     )
 
     if success:
@@ -209,14 +163,14 @@ def move_document(source_uri, source_project, target_project):
 
 def copy_document(source_uri, source_project, target_project):
     """Copy a document from one project to another"""
-    from tools import copy_document_between_projects
+    from tools import transfer_document_between_projects
 
     if source_project == target_project:
         return f"Source and target projects are the same: {source_project}"
 
     source_db = get_vector_store(source_project)
-    success = copy_document_between_projects(
-        source_uri, source_project, target_project, r, source_db
+    success = transfer_document_between_projects(
+        source_uri, source_project, target_project, r, source_db, delete_source=False
     )
 
     if success:
@@ -272,189 +226,6 @@ def delete_project(project_id):
         return f"Project '{project_id}' deleted successfully"
     except Exception as e:
         return f"Error deleting project '{project_id}': {str(e)}"
-
-
-def get_project_statistics():
-    """Get statistics for all projects"""
-    import datetime
-
-    import pandas as pd
-
-    projects = get_projects()
-    stats = []
-
-    for project_id in projects:
-        try:
-            # Get document count
-            doc_count = count_project_documents(project_id)
-
-            # Get last updated timestamp
-            last_updated = "Never"
-            try:
-                # Try to get latest document timestamp
-                db = get_vector_store(project_id)
-                results = query_source_documents(
-                    db,
-                    "*",
-                    print_output=False,
-                    fields=["date_added"],
-                    limit=1,
-                    project_id=project_id,
-                )
-
-                if len(results) > 0 and "date_added" in results.columns:
-                    timestamp = results["date_added"].iloc[0]
-                    if timestamp:
-                        date = datetime.datetime.fromtimestamp(int(timestamp))
-                        last_updated = date.strftime("%Y-%m-%d %H:%M:%S")
-            except Exception as e:
-                print(e)
-                pass
-
-            stats.append([project_id, doc_count, last_updated])
-        except Exception as e:
-            stats.append([project_id, f"Error: {str(e)}", "Unknown"])
-
-    return pd.DataFrame(stats, columns=["Project", "Document Count", "Last Updated"])
-
-
-def export_project_to_csv(project_id):
-    """Export all documents in a project to a CSV file"""
-    import datetime
-    import os
-
-    try:
-        # Get all documents from the project
-        db = get_vector_store(project_id)
-        results = query_source_documents(
-            db,
-            "*",
-            print_output=False,
-            fields=[
-                "title",
-                "company_name",
-                "source",
-                "date_added",
-                "page_length",
-                "page_content",
-            ],
-            limit=10000,
-            project_id=project_id,
-        )
-
-        if len(results) == 0:
-            return f"No documents found in project '{project_id}'", None
-
-        # Create DataFrame with the results
-        df = results[
-            [
-                "title",
-                "company_name",
-                "source",
-                "date_added",
-                "page_length",
-                "page_content",
-            ]
-        ]
-        df.columns = [
-            "Title",
-            "Company",
-            "Source",
-            "Date Added",
-            "Length",
-            "Content",
-        ]
-
-        # Convert date added to readable format
-        df["Date Added"] = df["Date Added"].apply(
-            lambda x: datetime.datetime.fromtimestamp(int(x)).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-            if x
-            else "Unknown"
-        )
-
-        # Create timestamp for filename
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"tmp/project_export_{project_id}_{timestamp}.csv"
-
-        # Create directory if it doesn't exist
-        os.makedirs("tmp", exist_ok=True)
-
-        # Save to CSV
-        df.to_csv(filename, index=False)
-
-        return (
-            f"Successfully exported {len(df)} documents from project '{project_id}'",
-            filename,
-        )
-    except Exception as e:
-        return f"Error exporting project '{project_id}': {str(e)}", None
-
-
-def import_project_from_csv(file_path, target_project):
-    """Import documents from a CSV file into a project"""
-    import datetime
-    import os
-
-    import pandas as pd
-
-    try:
-        if not os.path.exists(file_path):
-            return f"Error: File '{file_path}' not found"
-
-        # Read CSV file
-        df = pd.read_csv(file_path)
-
-        # Check required columns
-        required_columns = ["Title", "Company", "Source", "Content"]
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            return f"Error: Missing required columns: {', '.join(missing_columns)}"
-
-        # Create target project if it doesn't exist
-        if target_project not in get_projects():
-            from tools import initialize_project_indices
-
-            if not initialize_project_indices(r, target_project):
-                return f"Error: Failed to create project '{target_project}'"
-
-        # Import each document
-        db = get_vector_store(target_project)
-        success_count = 0
-        failed_count = 0
-
-        for _, row in df.iterrows():
-            try:
-                # Extract document data
-                title = row["Title"]
-                company = row["Company"]
-                source = row["Source"]
-                content = row["Content"]
-
-                # Create document metadata
-                metadata = {
-                    "title": title,
-                    "company_name": company,
-                    "source": source,
-                    "date_added": str(int(datetime.datetime.now().timestamp())),
-                    "page_length": len(content.split()),
-                }
-
-                # Add document to vector store
-                from langchain_core.documents import Document
-
-                document = Document(page_content=content, metadata=metadata)
-                db.add_documents([document])
-
-                success_count += 1
-            except Exception as e:
-                failed_count += 1
-                print(f"Error importing document: {str(e)}")
-
-        return f"Imported {success_count} documents to project '{target_project}' ({failed_count} failed)"
-    except Exception as e:
-        return f"Error importing project: {str(e)}"
 
 
 def climate_chat(
@@ -530,6 +301,7 @@ def climate_chat(
         happy_with_answer=happy_with_answer,
         continue_after_interrupt=getting_feedback,
         thread_id=chat_id,
+        project_id=project_id,
     ):
         if key == "improve_question":
             if improve_question:
@@ -858,7 +630,6 @@ footer {
                 project_docs_count = gr.Number(
                     label="Document Count", interactive=False
                 )
-                view_docs_button = gr.Button("View Project Documents")
                 delete_project_button = gr.Button("Delete Project", variant="stop")
                 delete_project_status = gr.Textbox(
                     label="Deletion Status", interactive=False
@@ -878,44 +649,6 @@ footer {
             inputs=[],
             outputs=[new_project_name],
         )
-
-        # Connect project deletion event handler
-        delete_project_button.click(
-            fn=delete_project, inputs=[project_list], outputs=[delete_project_status]
-        ).then(
-            fn=refresh_projects,
-            inputs=[],
-            outputs=[project_list],
-        )
-
-        with gr.Row():
-            gr.Markdown("## Project Statistics")
-
-        with gr.Row():
-            project_stats = gr.DataFrame(
-                headers=["Project", "Document Count", "Last Updated"],
-                label="Project Statistics",
-                interactive=False,
-            )
-            refresh_stats_button = gr.Button("Refresh Statistics")
-
-        # Connect refresh stats button
-        refresh_stats_button.click(
-            fn=get_project_statistics, inputs=[], outputs=[project_stats]
-        )
-
-        # Initial load of project stats
-        demo.load(fn=get_project_statistics, inputs=[], outputs=[project_stats])
-
-        with gr.Row():
-            gr.Markdown("## Project Documents")
-
-        with gr.Row():
-            project_documents = gr.DataFrame(
-                headers=["Title", "Company", "Source", "Date Added", "Length"],
-                label="Project Documents",
-                interactive=False,
-            )
 
         with gr.Row():
             gr.Markdown("## Document Operations")
@@ -948,92 +681,6 @@ footer {
         with gr.Row():
             move_doc_button = gr.Button("Move Document")
             copy_doc_button = gr.Button("Copy Document")
-
-        with gr.Row():
-            gr.Markdown("## Export Project")
-
-        with gr.Row():
-            with gr.Column(scale=1):
-                export_project = gr.Dropdown(
-                    choices=get_projects(),
-                    label="Project to Export",
-                    info="Choose project to export documents from",
-                    interactive=True,
-                )
-
-            with gr.Column(scale=1):
-                export_status = gr.Textbox(label="Export Status", interactive=False)
-                export_file = gr.File(
-                    label="Exported CSV File",
-                    file_count="single",
-                    type="filepath",
-                    interactive=False,
-                    visible=False,
-                )
-
-        with gr.Row():
-            export_button = gr.Button("Export Project Documents to CSV")
-
-        # Connect export button
-        export_button.click(
-            fn=export_project_to_csv,
-            inputs=[export_project],
-            outputs=[export_status, export_file],
-        )
-
-        with gr.Row():
-            gr.Markdown("## Import Project")
-
-        with gr.Row():
-            with gr.Column(scale=1):
-                import_file = gr.File(
-                    label="CSV File to Import",
-                    file_count="single",
-                    type="filepath",
-                    interactive=True,
-                )
-
-                import_project = gr.Dropdown(
-                    choices=get_projects(),
-                    label="Target Project",
-                    info="Project to import documents into (will be created if it doesn't exist)",
-                    interactive=True,
-                )
-
-            with gr.Column(scale=1):
-                import_status = gr.Textbox(label="Import Status", interactive=False)
-                import_preview = gr.DataFrame(
-                    headers=["Title", "Company", "Source", "Content Preview"],
-                    label="Import Preview",
-                    interactive=False,
-                    visible=False,
-                )
-
-        with gr.Row():
-            preview_button = gr.Button("Preview Import")
-            import_button = gr.Button("Import Documents")
-
-        # Connect import and preview buttons
-
-        preview_button.click(
-            fn=preview_csv_import,
-            inputs=[import_file],
-            outputs=[import_status, import_preview],
-        )
-
-        import_button.click(
-            fn=import_project_from_csv,
-            inputs=[import_file, import_project],
-            outputs=[import_status],
-        ).then(
-            fn=refresh_projects,
-            inputs=[],
-            outputs=[project_list],
-        ).then(
-            fn=get_project_statistics,
-            inputs=[],
-            outputs=[project_stats],
-        )
 
     ### Define the logic
     ## Tab 1: Chat
@@ -1294,10 +941,10 @@ footer {
     )
 
     # Add new documents
-    def add_document(url):
+    def add_document(url, project_id):
         from tools import add_urls_to_db
 
-        add_urls_to_db([url], db)
+        add_urls_to_db([url], db, project_id=project_id)
 
         # Retrieve source markdown
         page_content = query_source_documents(
@@ -1311,13 +958,13 @@ footer {
 
     add_button.click(
         fn=add_document,
-        inputs=[url_input],
+        inputs=[url_input, project_dropdown],
         outputs=[selected_source],
         queue=False,
     )
     url_input.submit(
         fn=add_document,
-        inputs=[url_input],
+        inputs=[url_input, project_dropdown],
         outputs=[selected_source],
         queue=False,
     )
@@ -1344,6 +991,12 @@ footer {
     )
 
     # Connect buttons to functions
+    project_list.change(
+        fn=count_project_documents,
+        inputs=[project_list],
+        outputs=[project_docs_count],
+    )
+
     refresh_projects_button.click(
         fn=refresh_projects,
         inputs=[],
@@ -1351,8 +1004,14 @@ footer {
     )
 
     create_project_button.click(
-        fn=create_project, inputs=[new_project_name], outputs=[create_project_status]
-    ).then(fn=refresh_projects, inputs=[], outputs=[project_dropdown]).then(
+        fn=create_project,
+        inputs=[new_project_name],
+        outputs=[create_project_status, project_dropdown],
+    ).then(
+        fn=refresh_projects,
+        inputs=[],
+        outputs=[project_dropdown],
+    ).then(
         fn=lambda: "",  # Clear the input field after creation
         inputs=[],
         outputs=[new_project_name],
@@ -1365,29 +1024,11 @@ footer {
         outputs=[project_list],
     )
 
-    # Update document count when project changes
-    project_list.change(
-        fn=count_project_documents,
-        inputs=[project_list],
-        outputs=[project_docs_count],
-    )
-
-    # View documents button
-    view_docs_button.click(
-        fn=list_project_documents,
-        inputs=[project_list],
-        outputs=[project_documents],
-    )
-
     # Move document button
     move_doc_button.click(
         fn=move_document,
         inputs=[source_document, source_project, target_project],
         outputs=[operation_result],
-    ).then(
-        fn=list_project_documents,
-        inputs=[project_list],
-        outputs=[project_documents],
     ).then(
         fn=count_project_documents,
         inputs=[project_list],
@@ -1399,10 +1040,6 @@ footer {
         fn=copy_document,
         inputs=[source_document, source_project, target_project],
         outputs=[operation_result],
-    ).then(
-        fn=list_project_documents,
-        inputs=[project_list],
-        outputs=[project_documents],
     ).then(
         fn=count_project_documents,
         inputs=[project_list],

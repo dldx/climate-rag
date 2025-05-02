@@ -18,6 +18,12 @@ def main():
         "--urls", nargs="+", default=[], help="URL(s) to add to the database."
     )
     parser.add_argument(
+        "--project-id",
+        type=str,
+        help="The project ID to add documents to.",
+        default="langchain",
+    )
+    parser.add_argument(
         "--files",
         nargs="+",
         default=[],
@@ -43,7 +49,7 @@ def main():
     args = parser.parse_args()
 
     # Create (or update) the data store.
-    db = get_vector_store()
+    db = get_vector_store(args.project_id)
     if args.urls:
         for url in args.urls:
             add_urls_to_db(
@@ -52,6 +58,7 @@ def main():
                 use_gemini=args.force_gemini,
                 table_augmenter=args.add_table_context,
                 document_prefix=args.document_prefix,
+                project_id=args.project_id,
             )
     elif args.files:
         upload_documents(
@@ -60,6 +67,7 @@ def main():
             use_gemini=args.force_gemini,
             table_augmenter=args.add_table_context,
             document_prefix=args.document_prefix,
+            project_id=args.project_id,
         )
     else:
         # For local documents

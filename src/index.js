@@ -1,5 +1,5 @@
 // Import all required packages
-import 'htmx.org';
+import htmx from 'htmx.org';
 import DOMPurify from 'dompurify';
 import { render } from 'katex';
 import { marked } from 'marked';
@@ -12,6 +12,7 @@ marked.use(markedKatex());
 window.DOMPurify = DOMPurify;
 window.marked = marked;
 window.katex = { render };
+window.htmx = htmx;
 
 marked.use(markedKatex({
     throwOnError: true,

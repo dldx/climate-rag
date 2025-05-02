@@ -3,8 +3,10 @@
         <form action="/search_sources" method="GET" class="grid"
           style="grid-column: 3 span;">
           <input type="search" value="{{ request.query_params['q'] }}" name="q"
+          id="source-search-input"
             placeholder="Search sources... Use @source:, @title:, or @company_name: to be more targetted"
-            hx-get="/search_sources" hx-push-url="true" hx-params="q"
+            hx-get="/search_sources" hx-push-url="true" hx-params="*"
+            hx-include="[name='project_id']"
             hx-trigger="input keyup changed delay:500ms, search"
             hx-target="#results"
             hx-indicator="#loading"

@@ -374,7 +374,7 @@ def add_urls_to_db_html(
                 # Add prefix to document
                 if len(document_prefix) > 0:
                     doc.page_content = document_prefix + "\n" + doc.page_content
-                add_doc_to_redis(r, doc)
+                add_doc_to_redis(r, doc, project_id=project_id)
                 chunks = split_documents([doc], table_augmenter=table_augmenter)
                 add_to_chroma(db, chunks)
                 docs += [doc]
@@ -405,7 +405,7 @@ def add_urls_to_db_youtube(urls: List[str], db, project_id: str) -> List[Documen
             if page_errors:
                 print(f"[Youtube] Error loading {url}: {page_errors}")
             else:
-                add_doc_to_redis(r, doc)
+                add_doc_to_redis(r, doc, project_id=project_id)
                 chunks = split_documents([doc])
                 add_to_chroma(db, chunks)
                 docs += [doc]
@@ -473,7 +473,7 @@ def add_document_to_db_via_gemini(
                     **doc.metadata,
                 }
                 doc.metadata["fetched_additional_metadata"] = "true"
-                add_doc_to_redis(r, doc)
+                add_doc_to_redis(r, doc, project_id=project_id)
                 docs += [doc]
         except Exception:
             store_error_in_redis(original_uri, str(traceback.format_exc()), "gemini")
@@ -517,7 +517,7 @@ def add_urls_to_db_firecrawl(
                             doc.page_content = document_prefix + "\n" + doc.page_content
                             webdocs[i] = doc
                         # Then cache the document in redis
-                        add_doc_to_redis(r, doc)
+                        add_doc_to_redis(r, doc, project_id=project_id)
                     chunks = split_documents(webdocs, table_augmenter=table_augmenter)
                     add_to_chroma(db, chunks)
                     docs += webdocs
@@ -554,7 +554,15 @@ def add_urls_to_db_firecrawl(
     return docs
 
 
-def add_doc_to_redis(r, doc, project_id="langchain"):
+def add_doc_to_redis(r, doc, project_id):
+    """
+    Add a document to redis with relevant keys.
+
+    Args:
+        r: The redis connection.
+        doc: The document to add.
+        project_id: The project ID to add the document to.
+    """
     doc_dict = {
         **doc.metadata,
         **{
@@ -640,7 +648,7 @@ async def add_urls_to_db_chrome(
             if len(document_prefix) > 0:
                 doc.page_content = document_prefix + "\n" + doc.page_content
             # Cache pre-chunked documents in redis
-            add_doc_to_redis(r, doc)
+            add_doc_to_redis(r, doc, project_id=project_id)
             chunks = split_documents([doc], table_augmenter=table_augmenter)
             add_to_chroma(db, chunks)
             docs_to_return.append(doc)
@@ -768,7 +776,6 @@ def get_sources_based_on_filter(
     if bool(re.search(r"https?://", rag_filter)):
         rag_filter = re.sub(r"\b(?:{})\b".format("|".join(stopwords)), "", rag_filter)
         rag_filter = re.sub(r"https?://", "", rag_filter)
-    print(f"Getting sources based on filter: {rag_filter} for project: {project_id}")
 
     # Get project-specific index names
     project_source_index_name = f"{source_index_name}_{project_id}"
@@ -780,12 +787,11 @@ def get_sources_based_on_filter(
         r.ft(project_source_index_name).info()
         use_project_index = True
     except ResponseError:
-        # Try to create the project indices
-        if initialize_project_indices(r, project_id):
-            use_project_index = True
-        else:
-            use_project_index = False
-            print(f"Using default indices as fallback for project: {project_id}")
+        print(f"Project {project_id} does not have a project-specific index")
+        use_project_index = False
+    print(
+        f"Getting sources based on filter: {rag_filter} for project: {project_id} with project index: {project_source_index_name}"
+    )
 
     # Get all sources from redis based on FT.SEARCH
     try:
@@ -887,6 +893,7 @@ def get_sources_based_on_filter(
                 ]
             )
         source_list = list(set(source_list))
+        print(f"Found {len(source_list)} sources: {source_list}")
     except ResponseError:
         print("Redis error:", str(traceback.format_exc()))
         source_list = []
@@ -1467,13 +1474,20 @@ def initialize_project_indices(r, project_id):
     try:
         # Define the index fields
         schema = (
-            TextField("page_content", weight=1.0),
-            TextField("title", weight=5.0),
-            TextField("company_name", weight=2.0),
-            TextField("source", weight=10.0),
-            NumericField("page_length"),
-            NumericField("date_added"),
+            TextField("source", sortable=True),
+            TextField("key_entity", sortable=True),
+            TextField("company_name", sortable=True),
+            TextField("title", sortable=True),
+            TextField("page_content"),
+            NumericField("page_length", sortable=True),
+            TagField("type_of_document", sortable=True),
+            NumericField("date_added", sortable=True),
+            NumericField("publishing_date", sortable=True),
+            TagField("fetched_additional_metadata", sortable=True),
+            TextField("key_entities"),
+            TextField("raw_html"),
             TagField("loader"),
+            TagField("project_id", sortable=True),
         )
 
         # Create indices that don't exist
@@ -1539,26 +1553,41 @@ def initialize_project_indices(r, project_id):
         return False
 
 
-def move_document_between_projects(
-    source_uri: str, source_project_id: str, target_project_id: str, r, db
+def transfer_document_between_projects(
+    source_uri: str,
+    source_project_id: str,
+    target_project_id: str,
+    r,
+    db,
+    delete_source: bool = False,
 ) -> bool:
     """
-    Move a document from one project to another.
+    Transfer (move or copy) a document from one project to another.
 
     Args:
-        source_uri: The URI of the document to move
+        source_uri: The URI of the document to transfer
         source_project_id: The source project ID
         target_project_id: The target project ID
         r: Redis connection
         db: The database object for the source project
+        delete_source: If True, the document will be deleted from source after copying
 
     Returns:
-        bool: True if the document was moved successfully, False otherwise
+        bool: True if the document was transferred successfully, False otherwise
     """
     from redis import ResponseError
 
     # Check if document exists in source project
-    if len(r.keys(f"climate-rag::{source_project_id}::source:{source_uri}")) == 0:
+    if (
+        len(
+            r.keys(
+                f"climate-rag::source:{source_uri}"
+                if source_project_id == "langchain"
+                else f"climate-rag::{source_project_id}::source:{source_uri}"
+            )
+        )
+        == 0
+    ):
         print(f"Document {source_uri} not found in project {source_project_id}")
         return False
 
@@ -1567,127 +1596,67 @@ def move_document_between_projects(
         print(f"Document {source_uri} already exists in project {target_project_id}")
         return False
 
-    # Initialize target project indices if they don't exist
-    initialize_project_indices(r, target_project_id)
-
     # Get document data from Redis
     try:
-        doc_data = r.hgetall(f"climate-rag::{source_project_id}::source:{source_uri}")
+        doc_data = r.hgetall(
+            f"climate-rag::source:{source_uri}"
+            if source_project_id == "langchain"
+            else f"climate-rag::{source_project_id}::source:{source_uri}"
+        )
+
+        # Update project_id in document
+        doc_data["project_id"] = target_project_id
 
         # Add to target project
         r.hset(
             f"climate-rag::{target_project_id}::source:{source_uri}", mapping=doc_data
         )
 
-        # Get document from source vector store
-        source_db = get_vector_store(source_project_id)
-        docs = source_db.get(
-            where={"source": {"$in": [source_uri]}}, include=["documents", "metadatas"]
-        )
-
-        if len(docs["ids"]) > 0:
-            # Get target vector store
-            target_db = get_vector_store(target_project_id)
-
-            # Add to target vector store
-            target_db.add_documents(
-                documents=[
-                    Document(page_content=doc, metadata=meta)
-                    for doc, meta in zip(docs["documents"], docs["metadatas"])
-                ],
-                ids=docs["ids"],
+        # Don't transfer chroma documents between projects if they are the same
+        if source_project_id != target_project_id:
+            # Get document from source vector store
+            source_db = get_vector_store(source_project_id)
+            docs = source_db.get(
+                where={"source": {"$in": [source_uri]}},
+                include=["documents", "metadatas"],
             )
 
-            # Delete from source project
-            r.delete(f"climate-rag::{source_project_id}::source:{source_uri}")
-            source_db.delete(ids=docs["ids"])
+            if len(docs["ids"]) > 0:
+                # Get target vector store
+                target_db = get_vector_store(target_project_id)
 
-            print(
-                f"Document {source_uri} moved from project {source_project_id} to {target_project_id}"
-            )
-            return True
+                # Add to target vector store
+                target_db.add_documents(
+                    documents=[
+                        Document(page_content=doc, metadata=meta)
+                        for doc, meta in zip(docs["documents"], docs["metadatas"])
+                    ]
+                )
+
+                # Delete from source project if requested
+                if delete_source:
+                    r.delete(
+                        f"climate-rag::source:{source_uri}"
+                        if source_project_id == "langchain"
+                        else f"climate-rag::{source_project_id}::source:{source_uri}"
+                    )
+                    source_db.delete(ids=docs["ids"])
+
+                operation = "moved" if delete_source else "copied"
+                print(
+                    f"Document {source_uri} {operation} from project {source_project_id} to {target_project_id}"
+                )
+                return True
+            else:
+                print(
+                    f"Document {source_uri} not found in vector store for project {source_project_id}"
+                )
+                return False
         else:
             print(
-                f"Document {source_uri} not found in vector store for project {source_project_id}"
-            )
-            return False
-    except ResponseError as e:
-        print(f"Error moving document {source_uri}: {e}")
-        return False
-
-
-def copy_document_between_projects(
-    source_uri: str, source_project_id: str, target_project_id: str, r, db
-) -> bool:
-    """
-    Copy a document from one project to another.
-
-    Args:
-        source_uri: The URI of the document to copy
-        source_project_id: The source project ID
-        target_project_id: The target project ID
-        r: Redis connection
-        db: The database object for the source project
-
-    Returns:
-        bool: True if the document was copied successfully, False otherwise
-    """
-    from redis import ResponseError
-
-    # Check if document exists in source project
-    if len(r.keys(f"climate-rag::{source_project_id}::source:{source_uri}")) == 0:
-        print(f"Document {source_uri} not found in project {source_project_id}")
-        return False
-
-    # Check if document already exists in target project
-    if len(r.keys(f"climate-rag::{target_project_id}::source:{source_uri}")) > 0:
-        print(f"Document {source_uri} already exists in project {target_project_id}")
-        return False
-
-    # Initialize target project indices if they don't exist
-    initialize_project_indices(r, target_project_id)
-
-    # Get document data from Redis
-    try:
-        doc_data = r.hgetall(f"climate-rag::{source_project_id}::source:{source_uri}")
-
-        # Add to target project
-        r.hset(
-            f"climate-rag::{target_project_id}::source:{source_uri}", mapping=doc_data
-        )
-
-        # Get document from source vector store
-        source_db = get_vector_store(source_project_id)
-        docs = source_db.get(
-            where={"source": {"$in": [source_uri]}}, include=["documents", "metadatas"]
-        )
-
-        if len(docs["ids"]) > 0:
-            # Get target vector store
-            target_db = get_vector_store(target_project_id)
-
-            # Add to target vector store with new IDs to avoid conflicts
-            import uuid
-
-            new_ids = [str(uuid.uuid4()) for _ in docs["ids"]]
-
-            target_db.add_documents(
-                documents=[
-                    Document(page_content=doc, metadata=meta)
-                    for doc, meta in zip(docs["documents"], docs["metadatas"])
-                ],
-                ids=new_ids,
-            )
-
-            print(
-                f"Document {source_uri} copied from project {source_project_id} to {target_project_id}"
+                f"Document {source_uri} already exists in project {target_project_id}"
             )
             return True
-        else:
-            print(
-                f"Document {source_uri} not found in vector store for project {source_project_id}"
-            )
-            return False
     except ResponseError as e:
-        print(f"Error copying document {source_uri}: {e}")
+        print(f"Error transferring document {source_uri}: {e}")
         return False
