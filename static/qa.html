@@ -1,7 +1,7 @@
         {% include 'header.html' %}
         <script>
 
-                    const projectSelect = document.getElementById('project-select');
+                    let projectSelect = document.getElementById('project-select');
                     // Function to extract project ID from search query
                     function extractProjectIdFromQuery(query) {
                         const match = query.match(/@project_id:([^\s]+)/);
@@ -31,7 +31,9 @@
           <input type="search" value="{{ request.query_params['q'] }}" name="q"
           id="qa-search-input"
             placeholder="Search previous queries... Use @question: and @answer: to be more targetted"
-            hx-get="/search_qa" hx-push-url="true" hx-params="q"
+            hx-get="/search_qa"
+             hx-push-url="true" hx-params="*"
+            hx-include="[name='project_id']"
             hx-trigger="input changed delay:500ms, search"
             hx-target="#results"
             hx-indicator="#loading"

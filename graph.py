@@ -1,5 +1,11 @@
+import pickle
+from typing import Any, Tuple
+
+import pandas as pd
 from dotenv import load_dotenv
+from langchain_core.documents import Document
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.base import SerializerProtocol
 from langgraph.graph import END, StateGraph
 
 from agents import (
@@ -21,9 +27,57 @@ from schemas import GraphState
 load_dotenv()
 
 
+class CustomSerializer(SerializerProtocol):
+    """Custom serializer that handles pandas DataFrames, chromadb Documents and other objects."""
+
+    def dumps(self, obj: Any) -> bytes:
+        if isinstance(obj, pd.DataFrame):
+            # For DataFrames, we'll pickle them with a special type marker
+            return pickle.dumps(("DataFrame", obj.to_dict()))
+        elif isinstance(obj, Document):
+            # For chromadb Documents, we'll pickle them with a special type marker
+            return pickle.dumps(("Document", obj))
+        return pickle.dumps(obj)
+
+    def dumps_typed(self, obj: Any) -> Tuple[str, bytes]:
+        if isinstance(obj, pd.DataFrame):
+            # For DataFrames, we'll pickle them with a special type marker
+            return "DataFrame", pickle.dumps(obj.to_dict())
+        elif isinstance(obj, Document):
+            # For chromadb Documents, we'll pickle them with a special type marker
+            return "Document", pickle.dumps(obj)
+        return "pickle", pickle.dumps(obj)
+
+    def loads(self, data: bytes) -> Any:
+        obj = pickle.loads(data)
+        if isinstance(obj, tuple):
+            if obj[0] == "DataFrame":
+                # If it's our special DataFrame format, reconstruct it
+                return pd.DataFrame.from_dict(obj[1])
+            elif obj[0] == "Document":
+                # If it's our special Document format, reconstruct it
+                return obj[1]
+        return obj
+
+    def loads_typed(self, data: Tuple[str, bytes]) -> Any:
+        type_str, bytes_data = data
+        if type_str == "DataFrame":
+            # If it's a DataFrame type, reconstruct it
+            return pd.DataFrame.from_dict(pickle.loads(bytes_data))
+        elif type_str == "Document":
+            # If it's a Document type, reconstruct it
+            doc_data = pickle.loads(bytes_data)
+            return doc_data
+        return pickle.loads(bytes_data)
+
+
+# Create an instance of our custom serializer
+serializer = CustomSerializer()
+
+
 def create_graph():
     workflow = StateGraph(GraphState)
-    memory = MemorySaver()
+    memory = MemorySaver(serde=serializer)
 
     # Define the nodes
     workflow.add_node("improve_question", improve_question)  # transform_query

@@ -79,17 +79,21 @@
             </ul>
             <ul>
               <li>
-                <a href="/">Home</a>
-              </li>
-              <li>
-                <a hx-boost="true" hx-swap="innerHTML transition:true" href="/search_qa">Search previous
-                Q&A</a>
+                <a href="/" hx-vals='js:{"project_id": document.getElementById("project-select").value}'>Home</a>
               </li>
               <li>
                 <a hx-boost="true"
                    hx-swap="innerHTML transition:true"
-                   href="/search_sources">Search
-                sources</a>
+                   hx-vals='js:{"project_id": document.getElementById("project-select").value}'
+                   href="/search_qa">Search previous Q&A</a>
+              </li>
+              <li>
+                <a hx-boost="true"
+                   hx-swap="innerHTML transition:true"
+                   hx-push-url="true"
+                   hx-params="*"
+                   hx-vals='js:{"project_id": document.getElementById("project-select").value}'
+                   href="/search_sources">Search sources</a>
               </li>
             </ul>
             <div class="grid">
@@ -101,7 +105,7 @@
             </div>
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
-                    const projectSelect = document.getElementById('project-select');
+                    let projectSelect = document.getElementById('project-select');
                     document.querySelectorAll('a').forEach(link => {
                         if (link.href === window.location.href.replace(window.location.search, "")) {
                             link.ariaCurrent = 'page';
@@ -113,6 +117,7 @@
                     projectSelect.addEventListener('change', function() {
                         const projectId = this.value;
                         const qaSearchInput = document.getElementById("qa-search-input");
+                        console.log("hello")
                         console.log(qaSearchInput)
                         if (qaSearchInput) {
                             let query = qaSearchInput.value;

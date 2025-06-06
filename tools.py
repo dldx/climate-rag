@@ -571,6 +571,7 @@ def add_doc_to_redis(r, doc, project_id):
             ),
             "page_content": doc.page_content,
             "page_length": len(doc.page_content),
+            "project_id": project_id,
         },
     }
     r.hset(f"climate-rag::{project_id}::source:" + doc_dict["source"], mapping=doc_dict)
@@ -776,6 +777,10 @@ def get_sources_based_on_filter(
     if bool(re.search(r"https?://", rag_filter)):
         rag_filter = re.sub(r"\b(?:{})\b".format("|".join(stopwords)), "", rag_filter)
         rag_filter = re.sub(r"https?://", "", rag_filter)
+
+    # Return early if the filter is empty
+    if rag_filter == "@source:()":
+        return []
 
     # Get project-specific index names
     project_source_index_name = f"{source_index_name}_{project_id}"
@@ -1315,12 +1320,14 @@ def get_source_document_extra_metadata(
     """
     # Check if metadata is available in redis
     dict_to_return = {}
+    redis_key = f"climate-rag::{project_id}::source:{source_uri}"
+    # If the project is langchain, and the metadata is not available, use the old key
+    if (project_id == "langchain") and (r.exists(redis_key) == 0):
+        redis_key = f"climate-rag::source:{source_uri}"
     field_map = dict(
         zip(
             metadata_fields,
-            r.hmget(
-                f"climate-rag::{project_id}::source:{source_uri}", *metadata_fields
-            ),
+            r.hmget(redis_key, *metadata_fields),
         )
     )
     for field_key, field_value in field_map.items():
@@ -1328,20 +1335,16 @@ def get_source_document_extra_metadata(
             pass
         elif use_llm and (
             r.hget(
-                f"climate-rag::{project_id}::source:{source_uri}",
+                redis_key,
                 "fetched_additional_metadata",
             )
             != "true"
         ):
             # Generate metadata from source document
             # Try to get the raw_html or page_content from redis
-            source_text = r.hget(
-                f"climate-rag::{project_id}::source:{source_uri}", "raw_html"
-            )
+            source_text = r.hget(redis_key, "raw_html")
             if not source_text:
-                source_text = r.hget(
-                    f"climate-rag::{project_id}::source:{source_uri}", "page_content"
-                )
+                source_text = r.hget(redis_key, "page_content")
             if not source_text or len(source_text) < 100:
                 return {}
             # Extract metadata from source document using LLM
@@ -1354,7 +1357,7 @@ def get_source_document_extra_metadata(
             page_metadata_map = clean_up_metadata_object(page_metadata)
             page_metadata_map["fetched_additional_metadata"] = "true"
             r.hset(
-                f"climate-rag::{project_id}::source:{source_uri}",
+                redis_key,
                 mapping=page_metadata_map,
             )
 
@@ -1362,9 +1365,7 @@ def get_source_document_extra_metadata(
     field_map = dict(
         zip(
             metadata_fields,
-            r.hmget(
-                f"climate-rag::{project_id}::source:{source_uri}", *metadata_fields
-            ),
+            r.hmget(redis_key, *metadata_fields),
         )
     )
     # Filter out None values

@@ -3,7 +3,7 @@ import os
 import traceback
 from datetime import datetime, timezone
 from typing import Annotated, List, Optional
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
 
 import gradio as gr
 import msgspec
@@ -63,12 +63,15 @@ class Answers(BaseModel):
     results: List[Answer]
 
 
-def _get_source_metadata(source: str, use_llm: bool = False):
+def _get_source_metadata(
+    source: str, use_llm: bool = False, project_id: str = "langchain"
+):
     metadata = get_source_document_extra_metadata(
         r,
         source,
         metadata_fields=["title", "company_name", "publishing_date"],
         use_llm=use_llm,
+        project_id=project_id,
     )
     return SourceMetadataWithSource(
         source=clean_urls(
@@ -147,13 +150,17 @@ def get_answer_by_id(
         Raises HTTPException if not found.
     """
     answer = r.hgetall(f"climate-rag::answer:{qa_id}")
+    # Get the project ID for the sources from the answer
+    project_id = answer.get("project_id", "langchain")
     if not answer:
         raise HTTPException(status_code=404, detail="Answer not found")
 
     sources = msgspec.json.decode(answer["sources"]) if answer.get("sources") else []
 
     if include_metadata:
-        sources = [_get_source_metadata(source) for source in sources]
+        sources = [
+            _get_source_metadata(source, project_id=project_id) for source in sources
+        ]
     else:
         sources = [SourceMetadataWithSource(source=source) for source in sources]
 
@@ -439,6 +446,7 @@ def get_source_search_results(
                     "q": q,
                     "page_no": page_no + 1,
                     "limit": limit,
+                    "project_id": project_id,
                 }
                 next_page_url = f"/search_sources?{urlencode(next_page_params)}"
                 html_content += f"""<div class="container">
@@ -455,7 +463,8 @@ def get_source_search_results(
             # try:
             #     source_md = PyMarkdownApi().fix_string(source.page_content).fixed_file
             # except:
-            source_md = source.page_content
+            # Sanitize the source content by removing all characters that might interfere with javascript
+            source_md = source.page_content.replace("`", "\\`")
             html_content += f"""
                 <header><h2><a target='_blank' href='{source.source}'>{source.title or source.source}</a></h2></header>
                 <p>Company: {source.company_name or "Unknown"}</p>
@@ -525,8 +534,9 @@ class Projects(BaseModel):
 @app.get("/projects", response_class=HTMLResponse)
 def get_projects(
     request: Request,
-    hx_request: Annotated[bool, Header()] = None,
-    hx_boosted: Annotated[bool, Header()] = None,
+    hx_request: Annotated[Optional[bool], Header()] = None,
+    hx_boosted: Annotated[Optional[bool], Header()] = None,
+    hx_current_url: Annotated[Optional[str], Header()] = None,
 ):
     """
     Get all available project IDs from Redis.
@@ -535,9 +545,13 @@ def get_projects(
         List[str]: A list of project IDs
     """
     projects = list(r.smembers("climate-rag::projects"))
+    if hx_current_url is not None:
+        hx_current_query_params = parse_qs(urlparse(hx_current_url).query)
+
     if hx_request:
         return "".join(
-            f"<option value='{project}'>{project}</option>" for project in projects
+            f"<option value='{project}' {'selected' if project == hx_current_query_params.get('project_id', ['langchain'])[0] else ''}>{project}</option>"
+            for project in projects
         )
     else:
         return JSONResponse(Projects(projects=projects).model_dump())
