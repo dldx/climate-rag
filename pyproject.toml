@@ -60,4 +60,5 @@ build-backend = "hatchling.build"
 # This is a simple approach for a flat layout.
 # For more complex projects, organizing into a src/project_name directory is common.
 packages = ["./"]
+py-modules = ["climate_rag"]
 include = ["*.py"]
