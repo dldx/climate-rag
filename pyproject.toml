@@ -1,7 +1,7 @@
 [project]
 name = "climate-rag"
 version = "0.1.0"
-description = "Add your description here"
+description = "A retrieval-augmented generation model to answer questions related to climate and energy data."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
