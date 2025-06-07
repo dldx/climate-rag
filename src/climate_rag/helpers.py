@@ -15,7 +15,7 @@ from markdown_pdf import MarkdownPdf, Section
 from pathvalidate import sanitize_filename as _sanitize_filename
 from redis import Redis
 
-from schemas import SourceMetadata
+from climate_rag.schemas import SourceMetadata
 
 load_dotenv()
 
@@ -288,8 +288,8 @@ def get_previous_queries(
 
 
 def render_qa_pdfs(qa_id) -> Tuple[str, str]:
-    from cache import r
-    from helpers import md_to_pdf, pdf_to_docx
+    from climate_rag.cache import r
+    from climate_rag.helpers import md_to_pdf, pdf_to_docx
 
     filename = sanitize_filename(qa_id)
     qa_map = r.hgetall(f"climate-rag::answer:{qa_id}")

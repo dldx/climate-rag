@@ -9,8 +9,8 @@ from typing import List
 
 from redis.commands.search.query import Query
 
-from cache import r, source_index_name
-from tools import (
+from climate_rag.cache import r, source_index_name
+from climate_rag.tools import (
     delete_document_from_db,
     error_messages,
     get_vector_store,

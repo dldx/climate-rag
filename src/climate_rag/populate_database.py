@@ -1,6 +1,6 @@
 import argparse
 
-from tools import (
+from climate_rag.tools import (
     add_to_chroma,
     add_urls_to_db,
     get_vector_store,

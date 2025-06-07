@@ -25,18 +25,29 @@ from langchain_core.documents import Document
 from redis import ResponseError
 from ulid import ULID
 
-from cache import ja_source_index_name, r, source_index_name, zh_source_index_name
-from get_embedding_function import get_embedding_function
-from helpers import (
+from climate_rag.cache import (
+    ja_source_index_name,
+    r,
+    source_index_name,
+    zh_source_index_name,
+)
+from climate_rag.get_embedding_function import get_embedding_function
+from climate_rag.helpers import (
     clean_up_metadata_object,
     clean_urls,
     modify_document_source_urls,
     sanitize_url,
     upload_file,
 )
-from pdf_download import download_urls_in_headed_chrome, download_urls_with_requests
-from schemas import SourceMetadata
-from text_splitters import TablePreservingSemanticChunker, TablePreservingTextSplitter
+from climate_rag.pdf_download import (
+    download_urls_in_headed_chrome,
+    download_urls_with_requests,
+)
+from climate_rag.schemas import SourceMetadata
+from climate_rag.text_splitters import (
+    TablePreservingSemanticChunker,
+    TablePreservingTextSplitter,
+)
 
 logger = logging.getLogger(__name__)
 enc = tiktoken.encoding_for_model("gpt-4o")
@@ -321,7 +332,7 @@ def add_urls_to_db_html(
 ) -> List[Document]:
     from langchain_community.document_loaders import AsyncHtmlLoader
 
-    from chromium import Rotator, user_agents
+    from climate_rag.chromium import Rotator, user_agents
 
     user_agent = Rotator(user_agents)
 
@@ -436,7 +447,7 @@ def add_document_to_db_via_gemini(
     Returns:
         A list of documents that were added to the database.
     """
-    from process_pdf_via_gemini import process_pdf_via_gemini
+    from climate_rag.process_pdf_via_gemini import process_pdf_via_gemini
 
     docs = []
     ids_existing = r.keys(f"*{original_uri}")
@@ -593,7 +604,7 @@ async def add_urls_to_db_chrome(
     )
     from langchain_community.document_transformers import Html2TextTransformer
 
-    from chromium import Rotator, user_agents
+    from climate_rag.chromium import Rotator, user_agents
 
     user_agent = Rotator(user_agents)
     default_header_template = {
@@ -1266,13 +1277,13 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
     from langchain_core.output_parsers import PydanticOutputParser
     from langchain_core.prompts import ChatPromptTemplate
 
-    from llms import get_chatbot, get_max_token_length
-    from prompts import metadata_extractor_prompt
+    from climate_rag.llms import get_chatbot, get_max_token_length
+    from climate_rag.prompts import metadata_extractor_prompt
 
     parser = PydanticOutputParser(pydantic_object=SourceMetadata)
 
-    llm = get_chatbot("gemini-1.5-flash")
-    max_token_length = get_max_token_length("gemini-2.0-flash-exp")
+    llm = get_chatbot("gemini-2.5-flash-preview-05-20")
+    max_token_length = get_max_token_length("gemini-2.5-flash-preview-05-20")
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -1392,8 +1403,8 @@ def generate_additional_table_context(table: str) -> str:
     from langchain_core.output_parsers import StrOutputParser
     from langchain_core.prompts import ChatPromptTemplate
 
-    from llms import get_chatbot
-    from prompts import table_augmentation_prompt
+    from climate_rag.llms import get_chatbot
+    from climate_rag.prompts import table_augmentation_prompt
 
     llm = get_chatbot("gemini-1.5-flash")
 

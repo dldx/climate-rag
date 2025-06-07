@@ -17,11 +17,11 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langcodes import Language
 from pydantic import BaseModel, Field
 
-from cache import r
-from helpers import generate_qa_id
-from llms import get_chatbot, get_max_token_length
-from schemas import GraphState, SearchQueries, SearchQuery
-from tools import (
+from climate_rag.cache import r
+from climate_rag.helpers import generate_qa_id
+from climate_rag.llms import get_chatbot, get_max_token_length
+from climate_rag.schemas import GraphState, SearchQueries, SearchQuery
+from climate_rag.tools import (
     add_urls_to_db,
     enc,
     format_docs,
@@ -55,7 +55,7 @@ def improve_question(state: GraphState) -> GraphState:
     Returns:
         state (dict): Updates question key with a re-phrased question
     """
-    from prompts import question_rewriter_prompt
+    from climate_rag.prompts import question_rewriter_prompt
 
     ### Question Re-writer
 
@@ -110,7 +110,7 @@ def formulate_query(state: GraphState) -> GraphState:
     question = state["question"]
 
     ### Convert question into search query
-    from prompts import planning_agent_prompt
+    from climate_rag.prompts import planning_agent_prompt
 
     n_queries = max(state["max_search_queries"], 5)
 
@@ -147,7 +147,7 @@ def formulate_query(state: GraphState) -> GraphState:
 
 
 def generate_search_query(state: GraphState) -> GraphState:
-    from prompts import generate_searches_prompt
+    from climate_rag.prompts import generate_searches_prompt
 
     llm = get_chatbot(
         state["llm"], model_kwargs={"response_format": {"type": "json_object"}}
@@ -218,7 +218,7 @@ def retrieve(state: GraphState) -> GraphState:
     else:
         retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": k})
     # We will retrieve docs based on many queries
-    from tools import retrieve_multiple_queries
+    from climate_rag.tools import retrieve_multiple_queries
 
     documents = retrieve_multiple_queries(
         [
@@ -506,7 +506,7 @@ def web_search(state: GraphState) -> GraphState:
 
 
 def crawl_or_not(doc: Document, question: str):
-    from prompts import crawl_grader_prompt
+    from climate_rag.prompts import crawl_grader_prompt
 
     """Decide whether to crawl a web page or not, and if so, which urls to scrape.
 
@@ -733,7 +733,7 @@ def generate(state: GraphState) -> GraphState:
     Returns:
         state (dict): New key added to state, generation, that contains LLM generation
     """
-    from prompts import generate_prompt
+    from climate_rag.prompts import generate_prompt
 
     print("---GENERATE---")
     documents = state["documents"]

@@ -9,17 +9,17 @@ from dotenv import load_dotenv
 from gradio_log import Log
 from ulid import ULID
 
-from cache import r, source_index_name
-from constants import language_choices
-from helpers import (
+from climate_rag.cache import r, source_index_name
+from climate_rag.constants import language_choices
+from climate_rag.helpers import (
     clean_urls,
     compile_answer,
     render_qa_pdfs,
     sanitize_url,
 )
-from logo import climate_rag_logo
-from query_data import query_source_documents, run_query
-from tools import get_vector_store
+from climate_rag.logo import climate_rag_logo
+from climate_rag.query_data import query_source_documents, run_query
+from climate_rag.tools import get_vector_store
 
 sys.settrace(None)
 
@@ -91,7 +91,7 @@ def create_project(project_name):
         return f"Project '{project_name}' already exists", gr.Dropdown()
 
     # Initialize project indices
-    from tools import initialize_project_indices
+    from climate_rag.tools import initialize_project_indices
 
     if initialize_project_indices(r, project_name):
         # Refresh dropdown
@@ -116,7 +116,7 @@ def count_project_documents(project_id):
 
 def list_project_documents(project_id):
     """List all documents in a project"""
-    from query_data import query_source_documents
+    from climate_rag.query_data import query_source_documents
 
     # Get all documents from the project
     db = get_vector_store(project_id)
@@ -145,7 +145,7 @@ def list_project_documents(project_id):
 
 def move_document(source_uri, source_project, target_project):
     """Move a document from one project to another"""
-    from tools import transfer_document_between_projects
+    from climate_rag.tools import transfer_document_between_projects
 
     if source_project == target_project:
         return f"Source and target projects are the same: {source_project}"
@@ -163,7 +163,7 @@ def move_document(source_uri, source_project, target_project):
 
 def copy_document(source_uri, source_project, target_project):
     """Copy a document from one project to another"""
-    from tools import transfer_document_between_projects
+    from climate_rag.tools import transfer_document_between_projects
 
     if source_project == target_project:
         return f"Source and target projects are the same: {source_project}"
@@ -801,7 +801,7 @@ footer {
     )
 
     def filter_documents(search_query, project_id="langchain"):
-        from query_data import query_source_documents
+        from climate_rag.query_data import query_source_documents
 
         if search_query is None:
             search_query = ""
@@ -840,7 +840,7 @@ footer {
 
     ## Tab 2: Query history
     def get_query_history(query_filter):
-        from helpers import get_previous_queries
+        from climate_rag.helpers import get_previous_queries
 
         if (query_filter is None) or (query_filter == ""):
             query_filter = "*"
@@ -893,7 +893,7 @@ footer {
     ## Tab 3: Documents
     # Search documents
     def search_documents(search_query, project_id="langchain"):
-        from query_data import query_source_documents
+        from climate_rag.query_data import query_source_documents
 
         if search_query is None:
             search_query = ""
@@ -942,7 +942,7 @@ footer {
 
     # Add new documents
     def add_document(url, project_id):
-        from tools import add_urls_to_db
+        from climate_rag.tools import add_urls_to_db
 
         add_urls_to_db([url], db, project_id=project_id)
 
@@ -970,7 +970,7 @@ footer {
     )
 
     # Upload new document
-    from tools import upload_documents
+    from climate_rag.tools import upload_documents
 
     new_file.upload(
         fn=lambda x: upload_documents(x, db)[-1].metadata[
