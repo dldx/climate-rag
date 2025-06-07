@@ -1448,7 +1448,7 @@ def initialize_project_indices(r, project_id):
     """
     from redis import ResponseError
     from redis.commands.search.field import NumericField, TagField, TextField
-    from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+    from redis.commands.search.index_definition import IndexDefinition, IndexType
 
     project_source_index_name = f"{source_index_name}_{project_id}"
     project_zh_source_index_name = f"{zh_source_index_name}_{project_id}"
