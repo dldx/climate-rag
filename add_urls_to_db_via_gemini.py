@@ -7,10 +7,10 @@ from rich.progress import Progress
 from tools import add_urls_to_db, get_vector_store
 
 logging.basicConfig(level=logging.INFO)
-db = get_vector_store()
+db = get_vector_store(project_id="langchain")
 urls = []  # Add URLs here
 
-partial_func = partial(add_urls_to_db, db=db, use_gemini=True)
+partial_func = partial(add_urls_to_db, db=db, use_gemini=True, project_id="langchain")
 
 
 def process_url(url, progress, task_id):

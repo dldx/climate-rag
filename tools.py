@@ -110,6 +110,7 @@ def add_urls_to_db(
     use_gemini: bool = False,
     table_augmenter: Optional[bool | Callable[[str], str]] = True,
     document_prefix: str = "",
+    project_id: str = "langchain",
 ) -> List[Document]:
     """Add a list of URLs to the database. Decide which loader to use based on the URL.
 
@@ -120,6 +121,7 @@ def add_urls_to_db(
         use_gemini: Whether to use Gemini to process PDFs.
         table_augmenter: A function to add additional context to tables in the document. If True, use the default table augmenter. If False or None, do not use a table augmenter. If a function, use the provided function.
         document_prefix: A prefix to add to the documents when uploading to the database.
+        project_id: The project to add the document to. Defaults to "langchain".
 
     Returns:
         A list of documents that were added to the database.
@@ -132,7 +134,8 @@ def add_urls_to_db(
 
     docs = []
     for url in urls:
-        ids_existing = r.keys(f"*{url}")
+        # First check if URL already exists in this project
+        ids_existing = r.keys(f"climate-rag::{project_id}::source:*{url}")
         # Only add url if it is not already in the database
         if len(ids_existing) == 0:
             if url.lower().endswith(".md"):
@@ -142,6 +145,7 @@ def add_urls_to_db(
                     db,
                     table_augmenter=table_augmenter,
                     document_prefix=document_prefix,
+                    project_id=project_id,
                 )
             elif (
                 url.lower().endswith(".xls")
@@ -153,7 +157,7 @@ def add_urls_to_db(
             # Check if it is a youtube url
             elif "youtube.com/watch?v=" in url:
                 # Use the youtube loader
-                docs += add_urls_to_db_youtube([url], db)
+                docs += add_urls_to_db_youtube([url], db, project_id=project_id)
             else:
                 if use_firecrawl:
                     docs += add_urls_to_db_firecrawl(
@@ -161,6 +165,7 @@ def add_urls_to_db(
                         db,
                         table_augmenter=table_augmenter,
                         document_prefix=document_prefix,
+                        project_id=project_id,
                     )
                 elif use_gemini:
                     # Use Gemini to process the PDF
@@ -183,6 +188,7 @@ def add_urls_to_db(
                             db,
                             table_augmenter=table_augmenter,
                             document_prefix=document_prefix,
+                            project_id=project_id,
                         )
                         docs += gemini_docs
 
@@ -199,6 +205,7 @@ def add_urls_to_db(
                             db,
                             table_augmenter=table_augmenter,
                             document_prefix=document_prefix,
+                            project_id=project_id,
                         )
                         # Check if the URL has been successfully processed
                         if url in list(
@@ -220,6 +227,7 @@ def add_urls_to_db(
                                     db,
                                     table_augmenter=table_augmenter,
                                     document_prefix=document_prefix,
+                                    project_id=project_id,
                                 )
                             else:
                                 # Otherwise, download file using headed chrome
@@ -237,6 +245,7 @@ def add_urls_to_db(
                                             use_gemini=use_gemini,
                                             table_augmenter=table_augmenter,
                                             document_prefix=document_prefix,
+                                            project_id=project_id,
                                         )
                                         if len(uploaded_docs) > 0:
                                             # Change the source to the original URL
@@ -245,6 +254,7 @@ def add_urls_to_db(
                                                 url,
                                                 db,
                                                 r,
+                                                project_id=project_id,
                                             )
                                         else:
                                             # Try using Gemini to process the PDF
@@ -255,6 +265,7 @@ def add_urls_to_db(
                                                     db,
                                                     table_augmenter=table_augmenter,
                                                     document_prefix=document_prefix,
+                                                    project_id=project_id,
                                                 )
                                             )
                                     else:
@@ -277,6 +288,7 @@ def add_urls_to_db(
                                 db,
                                 table_augmenter=table_augmenter,
                                 document_prefix=document_prefix,
+                                project_id=project_id,
                             )
                         )
                         # Check if the URL has been successfully processed
@@ -291,20 +303,21 @@ def add_urls_to_db(
                                 db,
                                 table_augmenter=table_augmenter,
                                 document_prefix=document_prefix,
+                                project_id=project_id,
                             )
 
         else:
-            print("Already in database: ", url)
+            print(f"Already in database (project {project_id}): {url}")
     # Fetch additional metadata
     # There should only be one url in this but just in case
     for i in set(map(lambda x: x.metadata["source"], docs)):
-        print("Fetching additional metadata for:", i)
-        get_source_document_extra_metadata(r, i)
+        print(f"Fetching additional metadata for: {i} (project {project_id})")
+        get_source_document_extra_metadata(r, i, project_id=project_id)
     return docs
 
 
 def add_urls_to_db_html(
-    urls: List[str], db, table_augmenter, document_prefix
+    urls: List[str], db, table_augmenter, document_prefix, project_id
 ) -> List[Document]:
     from langchain_community.document_loaders import AsyncHtmlLoader
 
@@ -361,7 +374,7 @@ def add_urls_to_db_html(
                 # Add prefix to document
                 if len(document_prefix) > 0:
                     doc.page_content = document_prefix + "\n" + doc.page_content
-                add_doc_to_redis(r, doc)
+                add_doc_to_redis(r, doc, project_id=project_id)
                 chunks = split_documents([doc], table_augmenter=table_augmenter)
                 add_to_chroma(db, chunks)
                 docs += [doc]
@@ -370,7 +383,7 @@ def add_urls_to_db_html(
     return docs
 
 
-def add_urls_to_db_youtube(urls: List[str], db) -> List[Document]:
+def add_urls_to_db_youtube(urls: List[str], db, project_id: str) -> List[Document]:
     docs = []
     for url in urls:
         ids_existing = r.keys(f"*{url}")
@@ -392,7 +405,7 @@ def add_urls_to_db_youtube(urls: List[str], db) -> List[Document]:
             if page_errors:
                 print(f"[Youtube] Error loading {url}: {page_errors}")
             else:
-                add_doc_to_redis(r, doc)
+                add_doc_to_redis(r, doc, project_id=project_id)
                 chunks = split_documents([doc])
                 add_to_chroma(db, chunks)
                 docs += [doc]
@@ -407,6 +420,7 @@ def add_document_to_db_via_gemini(
     db,
     table_augmenter: Optional[Callable[[str], str]] = None,
     document_prefix: str = "",
+    project_id: str = "langchain",
 ) -> List[Document]:
     """
     Add a document to the database using Google Gemini. Gemini is used to process complex PDFs with many tables.
@@ -417,6 +431,7 @@ def add_document_to_db_via_gemini(
         db: The Chroma database instance.
         table_augmenter: A function to add additional context to tables in the document. If True, use the default table augmenter. If False or None, do not use a table augmenter. If a function, use the provided function.
         document_prefix: A prefix to add to the documents when uploading to the database. Useful for adding context that is not in the document itself.
+        project_id: The project to add the document to. Defaults to "langchain".
 
     Returns:
         A list of documents that were added to the database.
@@ -458,7 +473,7 @@ def add_document_to_db_via_gemini(
                     **doc.metadata,
                 }
                 doc.metadata["fetched_additional_metadata"] = "true"
-                add_doc_to_redis(r, doc)
+                add_doc_to_redis(r, doc, project_id=project_id)
                 docs += [doc]
         except Exception:
             store_error_in_redis(original_uri, str(traceback.format_exc()), "gemini")
@@ -469,7 +484,11 @@ def add_document_to_db_via_gemini(
 
 
 def add_urls_to_db_firecrawl(
-    urls: List[str], db, table_augmenter=None, document_prefix=""
+    urls: List[str],
+    db,
+    table_augmenter=None,
+    document_prefix="",
+    project_id="langchain",
 ) -> List[Document]:
     docs = []
     for url in urls:
@@ -498,7 +517,7 @@ def add_urls_to_db_firecrawl(
                             doc.page_content = document_prefix + "\n" + doc.page_content
                             webdocs[i] = doc
                         # Then cache the document in redis
-                        add_doc_to_redis(r, doc)
+                        add_doc_to_redis(r, doc, project_id=project_id)
                     chunks = split_documents(webdocs, table_augmenter=table_augmenter)
                     add_to_chroma(db, chunks)
                     docs += webdocs
@@ -506,11 +525,12 @@ def add_urls_to_db_firecrawl(
                 print(f"[Firecrawl] Error loading {url}: {e}")
                 if (("429" in str(e)) or ("402" in str(e))) and "pdf" not in url:
                     # use local chrome loader instead
-                    docs += add_urls_to_db_chrome(
+                    docs += add_urls_to_db(
                         [url],
                         db,
                         table_augmenter=table_augmenter,
                         document_prefix=document_prefix,
+                        project_id=project_id,
                     )
                 elif "502" in str(e):
                     docs += add_urls_to_db_html(
@@ -518,6 +538,7 @@ def add_urls_to_db_firecrawl(
                         db,
                         table_augmenter=table_augmenter,
                         document_prefix=document_prefix,
+                        project_id=project_id,
                     )
                 else:
                     docs += add_urls_to_db_html(
@@ -525,6 +546,7 @@ def add_urls_to_db_firecrawl(
                         db,
                         table_augmenter=table_augmenter,
                         document_prefix=document_prefix,
+                        project_id=project_id,
                     )
         else:
             print("Already in database: ", url)
@@ -532,7 +554,15 @@ def add_urls_to_db_firecrawl(
     return docs
 
 
-def add_doc_to_redis(r, doc):
+def add_doc_to_redis(r, doc, project_id):
+    """
+    Add a document to redis with relevant keys.
+
+    Args:
+        r: The redis connection.
+        doc: The document to add.
+        project_id: The project ID to add the document to.
+    """
     doc_dict = {
         **doc.metadata,
         **{
@@ -541,13 +571,19 @@ def add_doc_to_redis(r, doc):
             ),
             "page_content": doc.page_content,
             "page_length": len(doc.page_content),
+            "project_id": project_id,
         },
     }
-    r.hset("climate-rag::source:" + doc_dict["source"], mapping=doc_dict)
+    r.hset(f"climate-rag::{project_id}::source:" + doc_dict["source"], mapping=doc_dict)
 
 
 async def add_urls_to_db_chrome(
-    urls: List[str], db, headless=True, table_augmenter=None, document_prefix=""
+    urls: List[str],
+    db,
+    headless=True,
+    table_augmenter=None,
+    document_prefix="",
+    project_id="langchain",
 ) -> List[Document]:
     import asyncio
 
@@ -613,7 +649,7 @@ async def add_urls_to_db_chrome(
             if len(document_prefix) > 0:
                 doc.page_content = document_prefix + "\n" + doc.page_content
             # Cache pre-chunked documents in redis
-            add_doc_to_redis(r, doc)
+            add_doc_to_redis(r, doc, project_id=project_id)
             chunks = split_documents([doc], table_augmenter=table_augmenter)
             add_to_chroma(db, chunks)
             docs_to_return.append(doc)
@@ -675,7 +711,11 @@ def delete_document_from_db(source_uri: str, db, r) -> bool:
 
 
 def get_sources_based_on_filter(
-    rag_filter: str, r: Any, limit: int = 10_000, page_no: int = 0
+    rag_filter: str,
+    r: Any,
+    limit: int = 10_000,
+    page_no: int = 0,
+    project_id: str = "langchain",
 ) -> List[str]:
     """
     Get all sources from redis based on a filter.
@@ -685,6 +725,7 @@ def get_sources_based_on_filter(
         r: The redis connection.
         limit (optional): Number of results to get on one page
         page_no (optional): Page of results to get
+        project_id (optional): The project ID to use. Defaults to "langchain"
 
     Returns:
         List[str]: A list of source URIs.
@@ -736,55 +777,128 @@ def get_sources_based_on_filter(
     if bool(re.search(r"https?://", rag_filter)):
         rag_filter = re.sub(r"\b(?:{})\b".format("|".join(stopwords)), "", rag_filter)
         rag_filter = re.sub(r"https?://", "", rag_filter)
-    print(f"Getting sources based on filter: {rag_filter}")
+
+    # Return early if the filter is empty
+    if rag_filter == "@source:()":
+        return []
+
+    # Get project-specific index names
+    project_source_index_name = f"{source_index_name}_{project_id}"
+    project_zh_source_index_name = f"{zh_source_index_name}_{project_id}"
+    project_ja_source_index_name = f"{ja_source_index_name}_{project_id}"
+
+    # Check if project-specific indices exist, if not, create them
+    try:
+        r.ft(project_source_index_name).info()
+        use_project_index = True
+    except ResponseError:
+        print(f"Project {project_id} does not have a project-specific index")
+        use_project_index = False
+    print(
+        f"Getting sources based on filter: {rag_filter} for project: {project_id} with project index: {project_source_index_name}"
+    )
 
     # Get all sources from redis based on FT.SEARCH
     try:
-        source_list = (
-            [
-                doc.id.replace("climate-rag::source:", "")
-                for doc in r.ft(source_index_name)
-                .search(
-                    Query(rag_filter)
-                    .dialect(2)
-                    .paging(
-                        max(0, (page_no - 1)) * limit,
-                        limit + max(0, (page_no - 1)) * limit,
+        if use_project_index:
+            index_prefix = (
+                f"climate-rag::{project_id}::source:"
+                if project_id != "langchain"
+                else "climate-rag::source:"
+            )
+            source_list = (
+                [
+                    doc.id.replace(index_prefix, "")
+                    for doc in r.ft(project_source_index_name)
+                    .search(
+                        Query(rag_filter)
+                        .dialect(2)
+                        .paging(
+                            max(0, (page_no - 1)) * limit,
+                            limit + max(0, (page_no - 1)) * limit,
+                        )
+                        .timeout(5000)
                     )
-                    .timeout(5000)
-                )
-                .docs
-            ]
-            + [
-                doc.id.replace("climate-rag::source:", "")
-                for doc in r.ft(zh_source_index_name)
-                .search(
-                    Query(rag_filter)
-                    .dialect(2)
-                    .paging(
-                        max(0, (page_no - 1)) * limit,
-                        limit + max(0, (page_no - 1)) * limit,
+                    .docs
+                ]
+                + [
+                    doc.id.replace(index_prefix, "")
+                    for doc in r.ft(project_zh_source_index_name)
+                    .search(
+                        Query(rag_filter)
+                        .dialect(2)
+                        .paging(
+                            max(0, (page_no - 1)) * limit,
+                            limit + max(0, (page_no - 1)) * limit,
+                        )
+                        .timeout(5000)
                     )
-                    .timeout(5000)
-                )
-                .docs
-            ]
-            + [
-                doc.id.replace("climate-rag::source:", "")
-                for doc in r.ft(ja_source_index_name)
-                .search(
-                    Query(rag_filter)
-                    .dialect(2)
-                    .paging(
-                        max(0, (page_no - 1)) * limit,
-                        limit + max(0, (page_no - 1)) * limit,
+                    .docs
+                ]
+                + [
+                    doc.id.replace(index_prefix, "")
+                    for doc in r.ft(project_ja_source_index_name)
+                    .search(
+                        Query(rag_filter)
+                        .dialect(2)
+                        .paging(
+                            max(0, (page_no - 1)) * limit,
+                            limit + max(0, (page_no - 1)) * limit,
+                        )
+                        .timeout(5000)
                     )
-                    .timeout(5000)
-                )
-                .docs
-            ]
-        )
+                    .docs
+                ]
+            )
+        else:
+            # Fall back to default indices
+            index_prefix = "climate-rag::source:"
+            source_list = (
+                [
+                    doc.id.replace(index_prefix, "")
+                    for doc in r.ft(source_index_name)
+                    .search(
+                        Query(rag_filter)
+                        .dialect(2)
+                        .paging(
+                            max(0, (page_no - 1)) * limit,
+                            limit + max(0, (page_no - 1)) * limit,
+                        )
+                        .timeout(5000)
+                    )
+                    .docs
+                ]
+                + [
+                    doc.id.replace(index_prefix, "")
+                    for doc in r.ft(zh_source_index_name)
+                    .search(
+                        Query(rag_filter)
+                        .dialect(2)
+                        .paging(
+                            max(0, (page_no - 1)) * limit,
+                            limit + max(0, (page_no - 1)) * limit,
+                        )
+                        .timeout(5000)
+                    )
+                    .docs
+                ]
+                + [
+                    doc.id.replace(index_prefix, "")
+                    for doc in r.ft(ja_source_index_name)
+                    .search(
+                        Query(rag_filter)
+                        .dialect(2)
+                        .paging(
+                            max(0, (page_no - 1)) * limit,
+                            limit + max(0, (page_no - 1)) * limit,
+                        )
+                        .timeout(5000)
+                    )
+                    .docs
+                ]
+            )
         source_list = list(set(source_list))
+        print(f"Found {len(source_list)} sources: {source_list}")
     except ResponseError:
         print("Redis error:", str(traceback.format_exc()))
         source_list = []
@@ -869,7 +983,16 @@ Content:
     return formatted_docs
 
 
-def get_vector_store():
+def get_vector_store(project_id: str = "langchain") -> Chroma:
+    """
+    Get a vector store for a project.
+
+    Args:
+        project_id: The project ID to use. Defaults to "langchain".
+
+    Returns:
+        A vector store for the project.
+    """
     import chromadb
 
     client = chromadb.HttpClient(
@@ -879,7 +1002,7 @@ def get_vector_store():
 
     db = Chroma(
         client=client,
-        collection_name="langchain",
+        collection_name=project_id,
         embedding_function=embedding_function,
     )
     return db
@@ -1061,6 +1184,7 @@ def upload_documents(
     use_gemini: bool = False,
     table_augmenter=None,
     document_prefix="",
+    project_id="langchain",
 ) -> List[Document | str]:
     """
     Add a document to the database from a local path.
@@ -1071,6 +1195,7 @@ def upload_documents(
         use_gemini: Whether to use Gemini to process the PDF.
         table_augmenter: A function to add additional context to tables in the document. If True, use the default table augmenter. If False or None, do not use a table augmenter. If a function, use the provided function.
         document_prefix: A prefix to add to the documents when uploading to the database.
+        project_id: The project to add the document to. Defaults to "langchain".
 
     Returns:
         A list of documents that were added to the database.
@@ -1131,6 +1256,7 @@ def upload_documents(
             use_gemini=use_gemini,
             table_augmenter=table_augmenter,
             document_prefix=document_prefix,
+            project_id=project_id,
         )
     return docs
 
@@ -1177,6 +1303,7 @@ def get_source_document_extra_metadata(
         Literal["title", "company_name", "publishing_date", "source"]
     ] = ["title"],
     use_llm: bool = True,
+    project_id: str = "langchain",
 ) -> Dict[str, Any]:
     from langchain_core.exceptions import OutputParserException
 
@@ -1185,32 +1312,39 @@ def get_source_document_extra_metadata(
     Args:
         source_uri: The source URI of the document.
         metadata_fields: A list of metadata fields to return.
+        use_llm: Whether to use an LLM to generate metadata if it's not available.
+        project_id: The project ID to use. Defaults to "langchain".
 
     Returns:
         Dict[str, any]: Returns a dictionary of metadata fields.
     """
     # Check if metadata is available in redis
     dict_to_return = {}
+    redis_key = f"climate-rag::{project_id}::source:{source_uri}"
+    # If the project is langchain, and the metadata is not available, use the old key
+    if (project_id == "langchain") and (r.exists(redis_key) == 0):
+        redis_key = f"climate-rag::source:{source_uri}"
     field_map = dict(
         zip(
             metadata_fields,
-            r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields),
+            r.hmget(redis_key, *metadata_fields),
         )
     )
     for field_key, field_value in field_map.items():
         if field_value is not None:
             pass
         elif use_llm and (
-            r.hget(f"climate-rag::source:{source_uri}", "fetched_additional_metadata")
+            r.hget(
+                redis_key,
+                "fetched_additional_metadata",
+            )
             != "true"
         ):
             # Generate metadata from source document
             # Try to get the raw_html or page_content from redis
-            source_text = r.hget(f"climate-rag::source:{source_uri}", "raw_html")
+            source_text = r.hget(redis_key, "raw_html")
             if not source_text:
-                source_text = r.hget(
-                    f"climate-rag::source:{source_uri}", "page_content"
-                )
+                source_text = r.hget(redis_key, "page_content")
             if not source_text or len(source_text) < 100:
                 return {}
             # Extract metadata from source document using LLM
@@ -1222,13 +1356,16 @@ def get_source_document_extra_metadata(
             # Save metadata to redis
             page_metadata_map = clean_up_metadata_object(page_metadata)
             page_metadata_map["fetched_additional_metadata"] = "true"
-            r.hset(f"climate-rag::source:{source_uri}", mapping=page_metadata_map)
+            r.hset(
+                redis_key,
+                mapping=page_metadata_map,
+            )
 
     # Return metadata fields from redis
     field_map = dict(
         zip(
             metadata_fields,
-            r.hmget(f"climate-rag::source:{source_uri}", *metadata_fields),
+            r.hmget(redis_key, *metadata_fields),
         )
     )
     # Filter out None values
@@ -1285,3 +1422,242 @@ def add_additional_table_context(table: str) -> str:
         f"<table_context>{generate_additional_table_context(table)}</table_context>\n"
         + table
     )
+
+
+def initialize_project_indices(r, project_id):
+    """
+    Initialize Redis search indices for a specific project if they don't exist yet.
+
+    Args:
+        r: Redis connection
+        project_id: The project ID to initialize indices for
+
+    Returns:
+        bool: True if indices were created or already existed, False on error
+    """
+    from redis import ResponseError
+    from redis.commands.search.field import NumericField, TagField, TextField
+    from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+
+    project_source_index_name = f"{source_index_name}_{project_id}"
+    project_zh_source_index_name = f"{zh_source_index_name}_{project_id}"
+    project_ja_source_index_name = f"{ja_source_index_name}_{project_id}"
+
+    # Check which indices exist
+    existing_indices = set()
+    missing_indices = set()
+
+    for index_name in [
+        project_source_index_name,
+        project_zh_source_index_name,
+        project_ja_source_index_name,
+    ]:
+        try:
+            r.ft(index_name).info()
+            existing_indices.add(index_name)
+        except ResponseError:
+            missing_indices.add(index_name)
+
+    if not missing_indices:
+        print(f"All indices already exist for project {project_id}")
+        return True
+
+    if existing_indices:
+        print(
+            f"Found existing indices for project {project_id}: {', '.join(existing_indices)}"
+        )
+        print(f"Creating missing indices: {', '.join(missing_indices)}")
+    else:
+        print(
+            f"No existing indices found for project {project_id}, creating all indices"
+        )
+
+    try:
+        # Define the index fields
+        schema = (
+            TextField("source", sortable=True),
+            TextField("key_entity", sortable=True),
+            TextField("company_name", sortable=True),
+            TextField("title", sortable=True),
+            TextField("page_content"),
+            NumericField("page_length", sortable=True),
+            TagField("type_of_document", sortable=True),
+            NumericField("date_added", sortable=True),
+            NumericField("publishing_date", sortable=True),
+            TagField("fetched_additional_metadata", sortable=True),
+            TextField("key_entities"),
+            TextField("raw_html"),
+            TagField("loader"),
+            TagField("project_id", sortable=True),
+        )
+
+        # Create indices that don't exist
+        for index_name in missing_indices:
+            if index_name == project_source_index_name:
+                # Create English index
+                r.ft(index_name).create_index(
+                    schema,
+                    definition=IndexDefinition(
+                        prefix=[
+                            (
+                                "climate-rag::source:"
+                                if project_id == "langchain"
+                                else f"climate-rag::{project_id}::source:"
+                            )
+                        ],
+                        index_type=IndexType.HASH,
+                    ),
+                )
+            elif index_name == project_zh_source_index_name:
+                # Create Chinese index with Chinese analyzer
+                r.ft(index_name).create_index(
+                    schema,
+                    definition=IndexDefinition(
+                        prefix=[
+                            (
+                                "climate-rag::source:"
+                                if project_id == "langchain"
+                                else f"climate-rag::{project_id}::source:"
+                            )
+                        ],
+                        index_type=IndexType.HASH,
+                        language="chinese",
+                    ),
+                )
+            elif index_name == project_ja_source_index_name:
+                # Create Japanese index with Japanese analyzer
+                r.ft(index_name).create_index(
+                    schema,
+                    definition=IndexDefinition(
+                        prefix=[
+                            (
+                                "climate-rag::source:"
+                                if project_id == "langchain"
+                                else f"climate-rag::{project_id}::source:"
+                            )
+                        ],
+                        index_type=IndexType.HASH,
+                        language="japanese",
+                    ),
+                )
+
+        # Add project to the list of projects
+        r.sadd("climate-rag::projects", project_id)
+
+        print(f"Successfully created all missing indices for project {project_id}")
+        return True
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        print(f"Error creating indices for project {project_id}: {e}")
+        return False
+
+
+def transfer_document_between_projects(
+    source_uri: str,
+    source_project_id: str,
+    target_project_id: str,
+    r,
+    db,
+    delete_source: bool = False,
+) -> bool:
+    """
+    Transfer (move or copy) a document from one project to another.
+
+    Args:
+        source_uri: The URI of the document to transfer
+        source_project_id: The source project ID
+        target_project_id: The target project ID
+        r: Redis connection
+        db: The database object for the source project
+        delete_source: If True, the document will be deleted from source after copying
+
+    Returns:
+        bool: True if the document was transferred successfully, False otherwise
+    """
+    from redis import ResponseError
+
+    # Check if document exists in source project
+    if (
+        len(
+            r.keys(
+                f"climate-rag::source:{source_uri}"
+                if source_project_id == "langchain"
+                else f"climate-rag::{source_project_id}::source:{source_uri}"
+            )
+        )
+        == 0
+    ):
+        print(f"Document {source_uri} not found in project {source_project_id}")
+        return False
+
+    # Check if document already exists in target project
+    if len(r.keys(f"climate-rag::{target_project_id}::source:{source_uri}")) > 0:
+        print(f"Document {source_uri} already exists in project {target_project_id}")
+        return False
+
+    # Get document data from Redis
+    try:
+        doc_data = r.hgetall(
+            f"climate-rag::source:{source_uri}"
+            if source_project_id == "langchain"
+            else f"climate-rag::{source_project_id}::source:{source_uri}"
+        )
+
+        # Update project_id in document
+        doc_data["project_id"] = target_project_id
+
+        # Add to target project
+        r.hset(
+            f"climate-rag::{target_project_id}::source:{source_uri}", mapping=doc_data
+        )
+
+        # Don't transfer chroma documents between projects if they are the same
+        if source_project_id != target_project_id:
+            # Get document from source vector store
+            source_db = get_vector_store(source_project_id)
+            docs = source_db.get(
+                where={"source": {"$in": [source_uri]}},
+                include=["documents", "metadatas"],
+            )
+
+            if len(docs["ids"]) > 0:
+                # Get target vector store
+                target_db = get_vector_store(target_project_id)
+
+                # Add to target vector store
+                target_db.add_documents(
+                    documents=[
+                        Document(page_content=doc, metadata=meta)
+                        for doc, meta in zip(docs["documents"], docs["metadatas"])
+                    ]
+                )
+
+                # Delete from source project if requested
+                if delete_source:
+                    r.delete(
+                        f"climate-rag::source:{source_uri}"
+                        if source_project_id == "langchain"
+                        else f"climate-rag::{source_project_id}::source:{source_uri}"
+                    )
+                    source_db.delete(ids=docs["ids"])
+
+                operation = "moved" if delete_source else "copied"
+                print(
+                    f"Document {source_uri} {operation} from project {source_project_id} to {target_project_id}"
+                )
+                return True
+            else:
+                print(
+                    f"Document {source_uri} not found in vector store for project {source_project_id}"
+                )
+                return False
+        else:
+            print(
+                f"Document {source_uri} already exists in project {target_project_id}"
+            )
+            return True
+    except ResponseError as e:
+        print(f"Error transferring document {source_uri}: {e}")
+        return False

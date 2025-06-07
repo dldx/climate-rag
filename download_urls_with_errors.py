@@ -2,7 +2,8 @@ from cache import r
 from tools import add_urls_to_db, get_vector_store
 
 if __name__ == "__main__":
-    db = get_vector_store()
+    print("WARNING: This script has not been updated to use the new project ID system.")
+    db = get_vector_store(project_id="langchain")
     urls_to_download = []
     for error in r.keys("climate-rag::error:*"):
         if r.hget(error, "status") not in ["in_database", "ignored"]:
@@ -16,4 +17,4 @@ if __name__ == "__main__":
 
     urls_to_download = list(set(urls_to_download))
     print(f"Downloading {len(urls_to_download)} urls:", urls_to_download)
-    docs = add_urls_to_db(urls=urls_to_download, db=db)
+    docs = add_urls_to_db(urls=urls_to_download, db=db, project_id="langchain")

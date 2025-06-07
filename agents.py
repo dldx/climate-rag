@@ -195,7 +195,7 @@ def retrieve(state: GraphState) -> GraphState:
     """
     print("---RETRIEVE---")
     print("Search Queries: ", state["search_prompts"])
-    db = get_vector_store()
+    db = get_vector_store(state["project_id"])
 
     ## Retrieve docs
     # 100 docs max
@@ -205,7 +205,9 @@ def retrieve(state: GraphState) -> GraphState:
     if rag_filter == "":
         rag_filter = None
     if rag_filter is not None:
-        source_list = get_sources_based_on_filter(rag_filter=rag_filter, r=r)
+        source_list = get_sources_based_on_filter(
+            rag_filter=rag_filter, r=r, project_id=state["project_id"]
+        )
         if len(source_list) == 0:
             print("No source documents found in database")
             return {"documents": [], "search_prompts": state["search_prompts"]}
@@ -588,7 +590,7 @@ def add_urls_to_database(state: GraphState) -> GraphState:
 
     print("---ADD WEB SEARCH RESULTS TO DATABASE---")
     documents = state["documents"]
-    db = get_vector_store()
+    db = get_vector_store(state["project_id"])
 
     # Add web search results to database
     # Filter only web search results
@@ -601,7 +603,9 @@ def add_urls_to_database(state: GraphState) -> GraphState:
         )
     )
     # Add urls to database
-    docs = add_urls_to_db(urls, db, use_firecrawl=use_firecrawl)
+    docs = add_urls_to_db(
+        urls, db, use_firecrawl=use_firecrawl, project_id=state["project_id"]
+    )
     # Check if docs need to be further crawled
     if state.get("do_crawl", False):
         for doc in docs:
@@ -619,6 +623,7 @@ def add_urls_to_database(state: GraphState) -> GraphState:
                     )[:10],
                     db,
                     use_firecrawl=use_firecrawl,
+                    project_id=state["project_id"],
                 )
     state["web_search_completed"] = True
 
@@ -803,6 +808,7 @@ Remember to return the answer in English only.""",
     qa_map = {
         "answer": generation,
         "question": state["initial_question"],
+        "project_id": state["project_id"],
         "rag_filter": state["rag_filter"] if state.get("rag_filter", False) else "*",
         "doc_ids": msgspec.json.encode([doc.metadata["id"] for doc in documents]),
         "sources": msgspec.json.encode(sources),

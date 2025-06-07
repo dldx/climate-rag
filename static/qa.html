@@ -1,15 +1,46 @@
         {% include 'header.html' %}
+        <script>
+
+                    let projectSelect = document.getElementById('project-select');
+                    // Function to extract project ID from search query
+                    function extractProjectIdFromQuery(query) {
+                        const match = query.match(/@project_id:([^\s]+)/);
+                        return match ? match[1].replace(/[{}]/g, '') : '';
+                    }
+                    // Function to update project dropdown based on search query
+                    function updateProjectDropdownFromSearch() {
+                        const qaSearchInput = document.getElementById("qa-search-input");
+                        if (qaSearchInput && projectSelect) {
+                            const projectId = extractProjectIdFromQuery(qaSearchInput.value);
+                            projectSelect.value = projectId;
+                        }
+                    }
+          document.addEventListener('DOMContentLoaded', function() {
+
+                    // Update project dropdown when search input changes
+                    document.getElementById("qa-search-input").addEventListener('input', function() {
+                        updateProjectDropdownFromSearch();
+                    });
+
+                    // Initial sync of project dropdown with search query
+                    updateProjectDropdownFromSearch();
+          });
+        </script>
 <div class="slide-it">
         <form action="/search_qa" method="GET" class="grid" style="grid-column: 3 span;">
           <input type="search" value="{{ request.query_params['q'] }}" name="q"
+          id="qa-search-input"
             placeholder="Search previous queries... Use @question: and @answer: to be more targetted"
-            hx-get="/search_qa" hx-push-url="true" hx-params="q"
-            hx-trigger="input keyup changed delay:500ms, search"
+            hx-get="/search_qa"
+             hx-push-url="true" hx-params="*"
+            hx-include="[name='project_id']"
+            hx-trigger="input changed delay:500ms, search"
             hx-target="#results"
             hx-indicator="#loading"
             style="align-self: center; margin-top: var(--pico-spacing);"
             >
-        </form></div>
+        </form>
+      </div>
       </header>
 
       <div id="results" style="flex-grow: 1">{{ html_content|safe }}</div>

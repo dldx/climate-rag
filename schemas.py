@@ -60,6 +60,7 @@ class GraphState(TypedDict):
     Represents the state of our graph.
 
     Attributes:
+    - project_id: The project ID to query for
     - llm: The language model to use
     - initial_question: The initial question asked by the user
     - question: The question asked by the user
@@ -88,6 +89,7 @@ class GraphState(TypedDict):
 
     """
 
+    project_id: str
     llm: Literal["gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude"]
     initial_question: str
     question: str

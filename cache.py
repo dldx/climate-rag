@@ -4,7 +4,7 @@ import redis
 from dotenv import load_dotenv
 from redis import ResponseError
 from redis.commands.search.field import NumericField, TagField, TextField
-from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+from redis.commands.search.index_definition import IndexDefinition, IndexType
 
 load_dotenv()
 
@@ -43,6 +43,7 @@ source_schema = (
     TagField("fetched_additional_metadata", sortable=True),
     TextField("key_entities"),
     TextField("raw_html"),
+    TagField("project_id", sortable=True),
 )
 
 # Define the index name
@@ -118,6 +119,7 @@ answer_schema = (
     TagField("llm", sortable=True),
     NumericField("num_sources", sortable=True),
     NumericField("answer_length", sortable=True),
+    TagField("project_id", sortable=True),
 )
 
 # Check if the index exists, and create it if it doesn't

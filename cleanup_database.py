@@ -35,9 +35,12 @@ def remove_urls(urls: List[str], db) -> None:
         delete_document_from_db(url, db, r)
 
 
-def find_error_documents() -> List[dict]:
+def find_error_documents(project_id: str = "langchain") -> List[dict]:
     """
     Search for documents containing known error messages.
+
+    Args:
+        project_id: The project ID to query for
 
     Returns:
         List of document records containing errors
@@ -51,7 +54,7 @@ def find_error_documents() -> List[dict]:
 
         # Search for documents with error message
         results = (
-            r.ft(source_index_name)
+            r.ft(f"{source_index_name}_{project_id}")
             .search(
                 Query(
                     f'@page_content: "{sanitized_message}"' """@page_length:[0 10000]"""
@@ -73,18 +76,20 @@ def find_error_documents() -> List[dict]:
     return error_docs
 
 
-def find_short_documents(min_length: int = 400) -> List[dict]:
+def find_short_documents(
+    min_length: int = 400, project_id: str = "langchain"
+) -> List[dict]:
     """
     Find documents shorter than specified length.
 
     Args:
         min_length: Minimum acceptable document length in characters
-
+        project_id: The project ID to query for
     Returns:
         List of document records that are too short
     """
     return (
-        r.ft(source_index_name)
+        r.ft(f"{source_index_name}_{project_id}")
         .search(
             Query(f"@page_length:[0 {min_length}]").dialect(2).return_fields("source")
         )
@@ -109,25 +114,31 @@ def parse_args() -> argparse.Namespace:
         default=400,
         help="Minimum document length (default: 400 characters)",
     )
+    parser.add_argument(
+        "--project-id",
+        type=str,
+        help="The project ID to query for.",
+        default="langchain",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     """Main execution function."""
     args = parse_args()
-    db = get_vector_store()
+    db = get_vector_store(args.project_id)
 
     # Remove specified URLs
     if args.remove_urls:
         remove_urls(args.remove_urls, db)
 
     # Find documents with errors
-    error_docs = find_error_documents()
+    error_docs = find_error_documents(args.project_id)
     if error_docs:
         logger.info(f"Found {len(error_docs)} total documents with errors")
 
     # Find short documents
-    short_docs = find_short_documents(args.min_length)
+    short_docs = find_short_documents(args.min_length, args.project_id)
     if short_docs:
         logger.info(
             f"Found {len(short_docs)} documents shorter than {args.min_length} characters"

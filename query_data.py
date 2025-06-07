@@ -18,7 +18,7 @@ from tools import format_docs, get_sources_based_on_filter, get_vector_store
 
 
 load_dotenv()  # take environment variables from .env.
-app = create_graph()
+rag_graph = create_graph()
 
 
 # Different display functions for Jupyter and terminal
@@ -43,6 +43,12 @@ def main():
         type=str,
         help="The query text.",
         nargs="?" if "--get-docs" in sys.argv or "--get-source-doc" in sys.argv else 1,
+    )
+    parser.add_argument(
+        "--project-id",
+        type=str,
+        help="The project ID to query for.",
+        default="langchain",
     )
     parser.add_argument(
         "--rag-filter", type=str, help="Optional rag filter to use", default=""
@@ -153,12 +159,15 @@ def main():
         if args.rerank is None:
             args.rerank = True
 
-    db = get_vector_store()
+    db = get_vector_store(args.project_id)
     if len(args.get_docs) > 0:
         get_documents_from_db(db, args.get_docs)
     elif args.get_source_doc is not None:
         query_source_documents(
-            db, args.get_source_doc, fields=["source", "page_content"]
+            db,
+            args.get_source_doc,
+            fields=["source", "page_content"],
+            project_id=args.project_id,
         )
     else:
         # If query_text is too short, return a message
@@ -184,6 +193,7 @@ def main():
                 initial_generation=args.initial_generation,
                 continue_after_interrupt=continue_after_interrupt,
                 happy_with_answer=user_happy_with_answer,
+                project_id="langchain",
             ):
                 if (
                     args.add_additional_metadata and key == "add_additional_metadata"
@@ -253,6 +263,7 @@ def query_source_documents(
         ]
     ] = None,
     limit: Optional[int] = 10_000,
+    project_id: Optional[str] = "langchain",
 ) -> pd.DataFrame:
     """
     Query the database for documents with a specific metadata key-value pair. Currently only supports querying by source.
@@ -262,6 +273,7 @@ def query_source_documents(
         source_uri: The source URI to query for. eg. "*carbontracker.org*" for wildcard search or "https://carbontracker.org" for exact match
         print: Whether to print the results
         fields: The fields to return in the DataFrame. Defaults to all fields. Available fields are: "source", "page_content", "raw_html", "date_added", "page_length", "title", "company_name"
+        project_id: The project ID to query for. Defaults to "langchain"
 
     Returns:
         pd.DataFrame: The documents that match the query
@@ -277,9 +289,15 @@ def query_source_documents(
             "company_name",
         ]
     keys = (
-        "climate-rag::source:"
+        (
+            f"climate-rag::{project_id}::source:"
+            if project_id != "langchain"
+            else "climate-rag::source:"
+        )
         + pd.Series(
-            get_sources_based_on_filter(rag_filter=source_uri, limit=limit, r=r)
+            get_sources_based_on_filter(
+                rag_filter=source_uri, limit=limit, r=r, project_id=project_id
+            )
         )
     ).tolist()
     if len(keys) == 0:
@@ -371,6 +389,7 @@ def run_query(
     thread_id: Optional[str] = "1",
     happy_with_answer: Optional[bool] = False,
     continue_after_interrupt: Optional[bool] = False,
+    project_id: Optional[str] = "langchain",
 ) -> Iterator[Tuple[str, GraphState]]:
     if len(question) < 5:
         return "error", {"error": "Please provide a more complete question."}
@@ -385,6 +404,7 @@ def run_query(
     inputs = {
         "question": question,
         "question_en": question,
+        "project_id": project_id,
         "llm": llm,
         "rag_filter": rag_filter,
         "shall_improve_question": improve_question,
@@ -401,9 +421,10 @@ def run_query(
     thread = {"configurable": {"thread_id": thread_id}}
 
     if continue_after_interrupt:
-        app.update_state(
+        rag_graph.update_state(
             thread,
             {
+                "project_id": project_id,
                 "happy_with_answer": happy_with_answer,
                 "do_rerank": do_rerank,
                 "do_crawl": do_crawl,
@@ -414,7 +435,9 @@ def run_query(
                 "rag_filter": rag_filter,
             },
         )
-    for output in app.stream(None if continue_after_interrupt else inputs, thread):
+    for output in rag_graph.stream(
+        None if continue_after_interrupt else inputs, thread
+    ):
         for key, value in output.items():
             # Node
             print(f"Node '{key}':")
