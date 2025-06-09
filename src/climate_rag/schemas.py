@@ -4,6 +4,17 @@ from langchain_core.documents import Document
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
+SupportedLLMs = Literal[
+    "gemini-2.5-pro-preview-05-06",
+    "gemini-2.5-flash-preview-05-20",
+    "gpt-4o",
+    "gpt-4.1",
+    "gpt-4o-mini",
+    "mistral",
+    "claude",
+    "llama-3.1",
+]
+
 
 class SearchQuery(BaseModel):
     query: str = Field(description="The search query to be executed")
@@ -90,7 +101,7 @@ class GraphState(TypedDict):
     """
 
     project_id: str
-    llm: Literal["gpt-4o", "gpt-3.5-turbo-16k", "mistral", "claude"]
+    llm: SupportedLLMs
     initial_question: str
     question: str
     question_en: str

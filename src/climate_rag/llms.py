@@ -1,42 +1,31 @@
 import os
-from typing import Literal
 
 from dotenv import load_dotenv
+
+from climate_rag.schemas import SupportedLLMs
 
 load_dotenv()
 
 
 def get_chatbot(
-    llm: Literal[
-        "gemini-2.5-flash-preview-05-20",
-        "gemini-2.0-flash",
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
-        "gpt-4o",
-        "gpt-4",
-        "gpt-4o-mini",
-        "gpt-3.5-turbo-16k",
-        "mistral",
-        "claude",
-        "llama-3.1",
-    ] = "claude",
+    llm: SupportedLLMs,
     **kwargs,
 ):
     """Get a chatbot instance.
 
     Args:
-        llm: The language model to use. Options are "gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k", "mistral", "claude" or "llama-3.1".
+        llm: The language model to use. Options are "gemini-2.5-flash-preview-05-20", "gemini-2.5-pro-preview-05-06", "gpt-4o", "gpt-4.1", "gpt-4o-mini", "mistral", "claude" or "llama-3.1".
         **kwargs: optional keyword arguments to pass to the chat model
 
     Returns:
         A chatbot instance.
     """
 
-    if llm in ["gpt-4o", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo-16k"]:
+    if "gpt" in llm:
         from langchain_openai import ChatOpenAI
 
         return ChatOpenAI(model=llm, **kwargs)
-    elif llm in ["llama-3.1"]:
+    elif "llama" in llm:
         from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
         if "NVIDIA_API_KEY" not in os.environ:
@@ -50,12 +39,7 @@ def get_chatbot(
             top_p=0.7,
             max_tokens=4096,
         )
-    elif llm in [
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
-        "gemini-2.0-flash",
-        "gemini-2.5-flash-preview-05-20",
-    ]:
+    elif "gemini" in llm:
         from langchain_google_vertexai import ChatVertexAI
 
         # The GOOGLE_PROJECT_ID environment variable must be set
@@ -71,11 +55,11 @@ def get_chatbot(
             project=os.getenv("GOOGLE_PROJECT_ID"),
             **kwargs,
         )
-    elif llm == "mistral":
+    elif "mistral" in llm:
         from langchain_community.chat_models import ChatOllama
 
         return ChatOllama(model="mistral", temperature=0, **kwargs)
-    elif llm == "claude":
+    elif "claude" in llm:
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(
@@ -84,18 +68,17 @@ def get_chatbot(
             timeout=None,
             max_retries=2,
         )
+    else:
+        raise ValueError(f"Unknown LLM: {llm}")
 
 
-def get_max_token_length(llm: str) -> int:
+def get_max_token_length(llm: SupportedLLMs) -> int:
     if llm == "gpt-4o":
-        return 24_000
-    elif llm in (
-        "gemini-2.5-flash-preview-05-20",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-    ):
+        return 100_000
+    elif "gemini" in llm or "gpt-4.1" in llm:
         # Can handle 1 million tokens but takes too long to process so not worth it!
         return 500_000
+    elif "o4-mini" in llm or "o3" in llm:
+        return 150_000
     else:
         return 24_000

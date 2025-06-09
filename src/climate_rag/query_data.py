@@ -12,6 +12,7 @@ from climate_rag.cache import r
 from climate_rag.constants import language_choices
 from climate_rag.graph import create_graph
 from climate_rag.helpers import clean_urls
+from climate_rag.schemas import SupportedLLMs
 from climate_rag.tools import (
     format_docs,
     get_sources_based_on_filter,
@@ -367,17 +368,7 @@ def get_all_documents_as_df(db) -> pd.DataFrame:
 
 def run_query(
     question: str,
-    llm: Literal[
-        "gpt-4o",
-        "gpt-4o-mini",
-        "mistral",
-        "claude",
-        "llama-3.1",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-    ] = "claude",
+    llm: SupportedLLMs = "claude",
     rag_filter: Optional[str] = None,
     improve_question: Optional[bool] = True,
     search_tool: Literal["serper", "tavily", "baidu"] = "serper",

@@ -14,11 +14,15 @@ def get_embedding_function(model="text-embedding-ada-002"):
         from langchain_openai import OpenAIEmbeddings
 
         return OpenAIEmbeddings()
-    elif "voyage" in model:
-        import chromadb.utils.embedding_functions as embedding_functions
+    elif model == "qwen3-embeddings-4b":
+        from langchain_openai import OpenAIEmbeddings
 
-        voyageai_ef = embedding_functions.VoyageAIEmbeddingFunction(
-            api_key=os.getenv("VOYAGEAI_API_KEY"), model_name=model
+        return OpenAIEmbeddings(
+            model="qwen3-embeddings-4b",
+            base_url=os.getenv("QWEN_EMBEDDINGS_BASE_URL"),
+            api_key=os.getenv("QWEN_EMBEDDINGS_API_KEY"),
         )
+    elif model == "gemini-embedding-001":
+        from langchain_google_vertexai import VertexAIEmbeddings
 
-        return voyageai_ef
+        return VertexAIEmbeddings(model_name="gemini-embedding-001")

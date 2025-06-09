@@ -994,12 +994,15 @@ Content:
     return formatted_docs
 
 
-def get_vector_store(project_id: str = "langchain") -> Chroma:
+def get_vector_store(
+    project_id: str = "langchain", embeddings_model: Optional[str] = None
+) -> Chroma:
     """
     Get a vector store for a project.
 
     Args:
         project_id: The project ID to use. Defaults to "langchain".
+        embeddings_model: The model to use for embeddings. See `get_embedding_function` for options. Defaults to None.
 
     Returns:
         A vector store for the project.
@@ -1009,7 +1012,10 @@ def get_vector_store(project_id: str = "langchain") -> Chroma:
     client = chromadb.HttpClient(
         host=os.environ["CHROMADB_HOSTNAME"], port=int(os.environ["CHROMADB_PORT"])
     )
-    embedding_function = get_embedding_function()
+    if embeddings_model:
+        embedding_function = get_embedding_function(model=embeddings_model)
+    else:
+        embedding_function = get_embedding_function()
 
     db = Chroma(
         client=client,
@@ -1293,10 +1299,9 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
     ).partial(response_format=parser.get_format_instructions())
     extract_chain = prompt | llm | parser
 
-    enc = tiktoken.encoding_for_model("gpt-4o-mini")
+    enc = tiktoken.encoding_for_model("gemini-2.5-flash-preview-05-20")
     total_token_length = len(enc.encode(source_text))
 
-    # The maximum token length for GPT-4o-mini is 128000 tokens
     # Reduce the length of the text to fit within the token limit and speed things up
     source_text = source_text[
         : int(max_token_length / total_token_length * len(source_text))
