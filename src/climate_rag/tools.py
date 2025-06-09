@@ -382,12 +382,13 @@ def add_urls_to_db_html(
                     )
                     webdocs = loader.load()
                     doc.metadata["raw_html"] = webdocs[0].page_content
+                doc = clean_document_contents([doc])[0]
                 # Add prefix to document
                 if len(document_prefix) > 0:
                     doc.page_content = document_prefix + "\n" + doc.page_content
-                add_doc_to_redis(r, doc, project_id=project_id)
                 chunks = split_documents([doc], table_augmenter=table_augmenter)
                 add_to_chroma(db, chunks)
+                add_doc_to_redis(r, doc, project_id=project_id)
                 docs += [doc]
         else:
             print("Already in database: ", url)
@@ -416,9 +417,9 @@ def add_urls_to_db_youtube(urls: List[str], db, project_id: str) -> List[Documen
             if page_errors:
                 print(f"[Youtube] Error loading {url}: {page_errors}")
             else:
-                add_doc_to_redis(r, doc, project_id=project_id)
                 chunks = split_documents([doc])
                 add_to_chroma(db, chunks)
+                add_doc_to_redis(r, doc, project_id=project_id)
                 docs += [doc]
         else:
             print("Already in database: ", url)
@@ -475,6 +476,7 @@ def add_document_to_db_via_gemini(
             if page_errors:
                 store_error_in_redis(original_uri, page_errors, "gemini")
             else:
+                doc = clean_document_contents([doc])[0]
                 chunks = split_documents(
                     filter_complex_metadata([doc]), table_augmenter=table_augmenter
                 )
@@ -522,6 +524,7 @@ def add_urls_to_db_firecrawl(
                     print(f"[Firecrawl] Error loading {url}: {page_errors}")
                 else:
                     webdocs = filter_complex_metadata(webdocs)
+                    webdocs = clean_document_contents(webdocs)
                     for i, doc in enumerate(webdocs):
                         # Add prefix to document
                         if len(document_prefix) > 0:
@@ -656,13 +659,14 @@ async def add_urls_to_db_chrome(
         if page_errors:
             print(f"[Chrome] Error loading {doc.metadata.get('source')}: {page_errors}")
         else:
+            doc = clean_document_contents([doc])[0]
             # Add prefix to document
             if len(document_prefix) > 0:
                 doc.page_content = document_prefix + "\n" + doc.page_content
-            # Cache pre-chunked documents in redis
-            add_doc_to_redis(r, doc, project_id=project_id)
             chunks = split_documents([doc], table_augmenter=table_augmenter)
             add_to_chroma(db, chunks)
+            # Cache pre-chunked documents in redis
+            add_doc_to_redis(r, doc, project_id=project_id)
             docs_to_return.append(doc)
 
     return docs_to_return
@@ -741,8 +745,15 @@ def get_sources_based_on_filter(
     Returns:
         List[str]: A list of source URIs.
     """
-    # Get all sources from redis
-    import re
+    import time
+
+    initialize_project_indices(r, project_id)
+    # Wait for the index to be created
+    info = r.ft(f"{source_index_name}_{project_id}").info()
+    while info["indexing"] == "1":  # type: ignore
+        logger.info("Waiting for source index to be created...")
+        time.sleep(1)
+        info = r.ft(f"{source_index_name}_{project_id}").info()
 
     from redis.commands.search.query import Query
 
@@ -1039,6 +1050,27 @@ def load_documents():
     return data
 
 
+def clean_document_contents(docs: list[Document]) -> list[Document]:
+    """
+    Clean the contents of a list of documents, removing excessive whitespace and characters that might be artifacts of OCR.
+
+    Args:
+        docs: A list of documents to clean.
+    Returns:
+        A list of cleaned documents.
+    """
+    MAX_REPEATS_TO_KEEP = 40
+    # This pattern matches any character repeated more than MAX_REPEATS_TO_KEEP times
+    pattern = rf"((.)\2{{{MAX_REPEATS_TO_KEEP - 1}}})\2{{1,}}"
+
+    for doc in docs:
+        # Replace excessive characters with just one instance of the character
+        doc.page_content = re.sub(pattern, r"\1", doc.page_content)
+        # Remove excessive newlines
+        doc.page_content = re.sub(r"\n{2,}", "\n", doc.page_content)
+    return docs
+
+
 def split_documents(
     documents: list[Document],
     splitter: Literal["character", "semantic"] = "semantic",
@@ -1138,8 +1170,45 @@ def add_to_chroma(db: Chroma, chunks: list[Document]):
 
     if document_not_in_db:
         print(f"👉 Adding new documents: {len(chunks_with_ids)}")
-        new_chunk_ids = [chunk.metadata["id"] for chunk in chunks_with_ids]
-        db.add_documents(chunks_with_ids, ids=new_chunk_ids)
+
+        # Batch chunks to stay under 250,000 tokens per request
+        MAX_TOKENS_PER_BATCH = 10_000
+        current_batch = []
+        current_batch_tokens = 0
+        batch_num = 1
+
+        for chunk in chunks_with_ids:
+            # Count tokens in the chunk content
+            chunk_tokens = len(enc.encode(chunk.page_content))
+
+            # If adding this chunk would exceed the limit, process current batch
+            if current_batch and (
+                current_batch_tokens + chunk_tokens > MAX_TOKENS_PER_BATCH
+            ):
+                print(
+                    f"📦 Processing batch {batch_num} with {len(current_batch)} chunks ({current_batch_tokens:,} tokens)"
+                )
+                batch_ids = [chunk.metadata["id"] for chunk in current_batch]
+                db.add_documents(current_batch, ids=batch_ids)
+
+                # Start new batch
+                current_batch = [chunk]
+                current_batch_tokens = chunk_tokens
+                batch_num += 1
+            else:
+                # Add chunk to current batch
+                current_batch.append(chunk)
+                current_batch_tokens += chunk_tokens
+
+        # Process remaining chunks in the final batch
+        if current_batch:
+            print(
+                f"📦 Processing final batch {batch_num} with {len(current_batch)} chunks ({current_batch_tokens:,} tokens)"
+            )
+            batch_ids = [chunk.metadata["id"] for chunk in current_batch]
+            db.add_documents(current_batch, ids=batch_ids)
+
+        print(f"✅ Successfully added all documents in {batch_num} batch(es)")
     else:
         print("✅ No new documents to add")
 
@@ -1299,7 +1368,7 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
     ).partial(response_format=parser.get_format_instructions())
     extract_chain = prompt | llm | parser
 
-    enc = tiktoken.encoding_for_model("gemini-2.5-flash-preview-05-20")
+    enc = tiktoken.encoding_for_model("gpt-4o")
     total_token_length = len(enc.encode(source_text))
 
     # Reduce the length of the text to fit within the token limit and speed things up
@@ -1453,7 +1522,7 @@ def initialize_project_indices(r, project_id):
     """
     from redis import ResponseError
     from redis.commands.search.field import NumericField, TagField, TextField
-    from redis.commands.search.index_definition import IndexDefinition, IndexType
+    from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 
     project_source_index_name = f"{source_index_name}_{project_id}"
     project_zh_source_index_name = f"{zh_source_index_name}_{project_id}"
@@ -1575,7 +1644,6 @@ def transfer_document_between_projects(
     source_project_id: str,
     target_project_id: str,
     r,
-    db,
     delete_source: bool = False,
 ) -> bool:
     """
@@ -1586,7 +1654,6 @@ def transfer_document_between_projects(
         source_project_id: The source project ID
         target_project_id: The target project ID
         r: Redis connection
-        db: The database object for the source project
         delete_source: If True, the document will be deleted from source after copying
 
     Returns:
@@ -1595,16 +1662,11 @@ def transfer_document_between_projects(
     from redis import ResponseError
 
     # Check if document exists in source project
-    if (
-        len(
-            r.keys(
-                f"climate-rag::source:{source_uri}"
-                if source_project_id == "langchain"
-                else f"climate-rag::{source_project_id}::source:{source_uri}"
-            )
-        )
-        == 0
-    ):
+    if len(r.keys(f"climate-rag::{source_project_id}::source:{source_uri}")) > 0:
+        source_key = f"climate-rag::{source_project_id}::source:{source_uri}"
+    elif len(r.keys(f"climate-rag::source:{source_uri}")) > 0:
+        source_key = f"climate-rag::source:{source_uri}"
+    else:
         print(f"Document {source_uri} not found in project {source_project_id}")
         return False
 
@@ -1615,11 +1677,7 @@ def transfer_document_between_projects(
 
     # Get document data from Redis
     try:
-        doc_data = r.hgetall(
-            f"climate-rag::source:{source_uri}"
-            if source_project_id == "langchain"
-            else f"climate-rag::{source_project_id}::source:{source_uri}"
-        )
+        doc_data = r.hgetall(source_key)
 
         # Update project_id in document
         doc_data["project_id"] = target_project_id
@@ -1652,11 +1710,7 @@ def transfer_document_between_projects(
 
                 # Delete from source project if requested
                 if delete_source:
-                    r.delete(
-                        f"climate-rag::source:{source_uri}"
-                        if source_project_id == "langchain"
-                        else f"climate-rag::{source_project_id}::source:{source_uri}"
-                    )
+                    r.delete(source_key)
                     source_db.delete(ids=docs["ids"])
 
                 operation = "moved" if delete_source else "copied"

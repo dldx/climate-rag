@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import tiktoken
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -15,7 +15,7 @@ class BaseTablePreservingTextSplitter:
     """
 
     @staticmethod
-    def extract_tables(text: str) -> List[Dict[str, str]]:
+    def extract_tables(text: str) -> List[Dict[str, Any]]:
         """
         Extract tables from the text.
         Supports different table formats (markdown, HTML, pipe-separated).
@@ -92,7 +92,7 @@ class BaseTablePreservingTextSplitter:
             return len(text) // 4
 
     @staticmethod
-    def _split_large_text_segment(text: str, max_tokens: int = 200000) -> List[str]:
+    def _split_large_text_segment(text: str, max_tokens: int = 25_000) -> List[str]:
         """
         Split a large text segment into smaller chunks to avoid token limits.
         Uses tiktoken for accurate token counting and character-based splitting.
@@ -143,6 +143,7 @@ class BaseTablePreservingTextSplitter:
         chunk_size: Optional[int] = None,
         length_function: Callable[[str], int] = len,
         table_augmenter: Optional[Callable[[str], str]] = None,
+        max_chunk_tokens: int = 8191,
     ) -> List[str]:
         """
         Split text while preserving tables.
@@ -151,6 +152,8 @@ class BaseTablePreservingTextSplitter:
         :param base_splitter: The base text splitter function to use
         :param chunk_size: Optional chunk size to limit chunk length
         :param length_function: Function to calculate length of text segments
+        :param table_augmenter: Optional function to augment table content
+        :param max_chunk_tokens: Maximum number of tokens per chunk. Raises ValueError if exceeded.
         :return: List of text chunks
         """
         # First, identify tables in the text
@@ -253,14 +256,35 @@ class BaseTablePreservingTextSplitter:
         if current_chunk:
             final_chunks.append(current_chunk)
 
+        # Validate that no chunk exceeds the maximum token limit
+        for i, chunk in enumerate(final_chunks):
+            token_count = cls._count_tokens(chunk)
+            if token_count > max_chunk_tokens:
+                logger.error(
+                    f"Chunk {i+1}/{len(final_chunks)} is too large: {token_count} tokens (max: {max_chunk_tokens}). "
+                    f"This is often caused by a large table that cannot be split."
+                )
+                raise ValueError(
+                    f"A chunk is too large ({token_count} tokens > max {max_chunk_tokens}). "
+                    f"Content starts with: '{chunk[:500]}...'"
+                )
+
         return final_chunks
 
 
 class TablePreservingSemanticChunker(SemanticChunker):
-    def __init__(self, chunk_size, length_function=len, table_augmenter=None, **kwargs):
+    def __init__(
+        self,
+        chunk_size,
+        length_function=len,
+        table_augmenter=None,
+        max_chunk_tokens: int = 25_000,
+        **kwargs,
+    ):
         self._chunk_size = chunk_size
         self._length_function = length_function
         self._table_augmenter = table_augmenter
+        self._max_chunk_tokens = max_chunk_tokens
         super().__init__(**kwargs)
 
     def split_text(self, text: str) -> List[str]:
@@ -270,14 +294,23 @@ class TablePreservingSemanticChunker(SemanticChunker):
             chunk_size=self._chunk_size,
             length_function=self._length_function,
             table_augmenter=self._table_augmenter,
+            max_chunk_tokens=self._max_chunk_tokens,
         )
 
 
 class TablePreservingTextSplitter(RecursiveCharacterTextSplitter):
-    def __init__(self, chunk_size, length_function=len, table_augmenter=None, **kwargs):
+    def __init__(
+        self,
+        chunk_size,
+        length_function=len,
+        table_augmenter=None,
+        max_chunk_tokens: int = 25_000,
+        **kwargs,
+    ):
         self._chunk_size = chunk_size
         self._length_function = length_function
         self._table_augmenter = table_augmenter
+        self._max_chunk_tokens = max_chunk_tokens
         super().__init__(**kwargs)
 
     def split_text(self, text: str) -> List[str]:
@@ -287,4 +320,5 @@ class TablePreservingTextSplitter(RecursiveCharacterTextSplitter):
             chunk_size=self._chunk_size,
             length_function=self._length_function,
             table_augmenter=self._table_augmenter,
+            max_chunk_tokens=self._max_chunk_tokens,
         )
