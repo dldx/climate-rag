@@ -2,6 +2,7 @@ import logging
 import re
 from typing import Callable, Dict, List, Optional
 
+import tiktoken
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
 
@@ -75,6 +76,65 @@ class BaseTablePreservingTextSplitter:
 
         return deduplicated_tables
 
+    @staticmethod
+    def _count_tokens(text: str) -> int:
+        """
+        Count tokens using tiktoken for accurate token measurement.
+        """
+        try:
+            encoding = tiktoken.encoding_for_model("gpt-4o")
+            return len(encoding.encode(text))
+        except Exception as e:
+            logger.warning(
+                f"Failed to count tokens with tiktoken: {e}. Falling back to character-based estimation."
+            )
+            # Fallback to rough estimation if tiktoken fails
+            return len(text) // 4
+
+    @staticmethod
+    def _split_large_text_segment(text: str, max_tokens: int = 200000) -> List[str]:
+        """
+        Split a large text segment into smaller chunks to avoid token limits.
+        Uses tiktoken for accurate token counting and character-based splitting.
+        """
+        if BaseTablePreservingTextSplitter._count_tokens(text) <= max_tokens:
+            return [text]
+
+        # Use a simple recursive character splitter for preprocessing
+        # Estimate character count based on token count to stay well under limit
+        chunk_size = max_tokens * 3  # Conservative estimate: ~3 chars per token
+        temp_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=200,
+            separators=["\n\n", "\n", ". ", " ", ""],
+        )
+
+        chunks = temp_splitter.split_text(text)
+
+        # Validate that chunks are within token limits and further split if needed
+        final_chunks = []
+        for chunk in chunks:
+            token_count = BaseTablePreservingTextSplitter._count_tokens(chunk)
+            if token_count <= max_tokens:
+                final_chunks.append(chunk)
+            else:
+                # If still too large, split more aggressively
+                logger.warning(
+                    f"Chunk still has {token_count} tokens, splitting further"
+                )
+                smaller_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=chunk_size // 2,
+                    chunk_overlap=100,
+                    separators=["\n\n", "\n", ". ", " ", ""],
+                )
+                sub_chunks = smaller_splitter.split_text(chunk)
+                final_chunks.extend(sub_chunks)
+
+        logger.info(
+            f"Split large text segment ({BaseTablePreservingTextSplitter._count_tokens(text)} tokens) into {len(final_chunks)} preprocessing chunks"
+        )
+        return final_chunks
+
     @classmethod
     def split_text(
         cls,
@@ -123,27 +183,43 @@ class BaseTablePreservingTextSplitter:
 
         for segment in text_segments:
             if segment["type"] == "text":
-                # Split the text segment
-                text_chunks = base_splitter(segment["content"])
+                # Check if the text segment is too large for the base splitter
+                # If so, split it into smaller pieces first
+                text_pieces = cls._split_large_text_segment(segment["content"])
 
-                for text_chunk in text_chunks:
-                    # Determine if chunk can be added based on chunk_size
-                    can_add_chunk = (
-                        chunk_size is None
-                        or length_function(current_chunk)
-                        + length_function(text_chunk)
-                        + 1
-                        <= chunk_size
-                    )
+                for text_piece in text_pieces:
+                    try:
+                        # Split the text piece
+                        text_chunks = base_splitter(text_piece)
+                    except Exception as e:
+                        logger.error(f"Error in base splitter: {e}")
+                        # Fallback to simple character-based splitting
+                        fallback_splitter = RecursiveCharacterTextSplitter(
+                            chunk_size=chunk_size or 4000, chunk_overlap=200
+                        )
+                        text_chunks = fallback_splitter.split_text(text_piece)
+                        logger.info(
+                            f"Used fallback splitter, created {len(text_chunks)} chunks"
+                        )
 
-                    # Try to add the text chunk to the current chunk
-                    if can_add_chunk:
-                        current_chunk += (" " if current_chunk else "") + text_chunk
-                    else:
-                        # If adding would exceed chunk size, finalize current chunk and start a new one
-                        if current_chunk:
-                            final_chunks.append(current_chunk)
-                        current_chunk = text_chunk
+                    for text_chunk in text_chunks:
+                        # Determine if chunk can be added based on chunk_size
+                        can_add_chunk = (
+                            chunk_size is None
+                            or length_function(current_chunk)
+                            + length_function(text_chunk)
+                            + 1
+                            <= chunk_size
+                        )
+
+                        # Try to add the text chunk to the current chunk
+                        if can_add_chunk:
+                            current_chunk += (" " if current_chunk else "") + text_chunk
+                        else:
+                            # If adding would exceed chunk size, finalize current chunk and start a new one
+                            if current_chunk:
+                                final_chunks.append(current_chunk)
+                            current_chunk = text_chunk
 
             elif segment["type"] == "table":
                 # Handle table integration

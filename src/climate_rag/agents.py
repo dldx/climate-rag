@@ -631,7 +631,7 @@ def add_urls_to_database(state: GraphState) -> GraphState:
 
 
 ### Edges
-def decide_to_rerank(state: GraphState) -> GraphState:
+def decide_to_rerank(state: GraphState) -> str:
     """
     Determines whether to rerank documents
 
