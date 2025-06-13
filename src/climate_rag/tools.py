@@ -23,6 +23,13 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_core.documents import Document
 from redis import ResponseError
+from redis.commands.search.field import NumericField, TagField, TextField
+
+try:
+    from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+except ImportError:
+    from redis.commands.search.index_definition import IndexDefinition, IndexType
+
 from ulid import ULID
 
 from climate_rag.cache import (
@@ -1073,7 +1080,7 @@ def clean_document_contents(docs: list[Document]) -> list[Document]:
 
 def split_documents(
     documents: list[Document],
-    splitter: Literal["character", "semantic"] = "semantic",
+    splitter: Literal["character", "semantic", "auto"] = "auto",
     max_token_length: int = 3000,
     iter_no: int = 0,
     table_augmenter: Optional[Callable[[str], str]] = None,
@@ -1083,9 +1090,12 @@ def split_documents(
 
     Args:
         documents: A list of documents to split.
-        splitter: The text splitter to use. Can be either "semantic" or "character". "semantic" is smarter but slower and more expensive. "character" is faster but dumb.
+        splitter: The text splitter to use. Can be "semantic", "character", or "auto".
+                 "auto" automatically selects based on document token length (>100k tokens uses character, otherwise semantic).
+                 "semantic" is smarter but slower and more expensive. "character" is faster but dumb.
         max_token_length: The maximum token length for each chunk. If a chunk is longer than this, it will be split further.
         iter_no: The iteration number. Used to prevent infinite recursion.
+        table_augmenter: A function to add additional context to tables in the document.
 
     Returns:
         A list of split documents.
@@ -1098,7 +1108,7 @@ def split_documents(
     enc = tiktoken.encoding_for_model("gpt-4o")
 
     documents_to_avoid_splitting = []
-    for doc in documents:
+    for doc in documents[:]:  # Create a copy to iterate over
         # Check if the filetype is a CSV, TSV, JSON, etc
         if doc.metadata.get("source") and (
             mimetypes.guess_type(Path(doc.metadata["source"]).name)[0]
@@ -1114,48 +1124,98 @@ def split_documents(
             documents_to_avoid_splitting.append(doc)
             documents.remove(doc)
 
-    if splitter == "semantic":
-        text_splitter = TablePreservingSemanticChunker(
-            embeddings=get_embedding_function(),
-            breakpoint_threshold_type="percentile",
-            chunk_size=max_token_length,
-            length_function=lambda x: len(enc.encode(x)),
-            table_augmenter=table_augmenter,
-        )
-    elif splitter == "character":
-        text_splitter = TablePreservingTextSplitter(
-            chunk_size=max_token_length,
-            chunk_overlap=0,
-            length_function=lambda x: len(enc.encode(x)),
-            is_separator_regex=False,
-            table_augmenter=table_augmenter,
-        )
-    split_docs = text_splitter.split_documents(documents)
+    # If auto-select mode, group documents by appropriate splitter
+    if splitter == "auto":
+        TOKEN_THRESHOLD = 60_000  # 100k tokens threshold
+
+        semantic_docs = []
+        character_docs = []
+
+        for doc in documents:
+            doc_tokens = len(enc.encode(doc.page_content))
+            if doc_tokens > TOKEN_THRESHOLD:
+                logger.info(
+                    f"Document {doc.metadata.get('source', 'unknown')} has {doc_tokens:,} tokens, using character splitter"
+                )
+                character_docs.append(doc)
+            else:
+                logger.info(
+                    f"Document {doc.metadata.get('source', 'unknown')} has {doc_tokens:,} tokens, using semantic splitter"
+                )
+                semantic_docs.append(doc)
+
+        split_docs = []
+
+        # Process semantic documents
+        if semantic_docs:
+            text_splitter = TablePreservingSemanticChunker(
+                embeddings=get_embedding_function(),
+                breakpoint_threshold_type="percentile",
+                chunk_size=max_token_length,
+                length_function=lambda x: len(enc.encode(x)),
+                table_augmenter=table_augmenter,
+            )
+            split_docs.extend(text_splitter.split_documents(semantic_docs))
+
+        # Process character documents
+        if character_docs:
+            text_splitter = TablePreservingTextSplitter(
+                chunk_size=max_token_length,
+                chunk_overlap=0,
+                length_function=lambda x: len(enc.encode(x)),
+                is_separator_regex=False,
+                table_augmenter=table_augmenter,
+            )
+            split_docs.extend(text_splitter.split_documents(character_docs))
+
+    else:
+        # Original behavior for explicit splitter choice
+        if splitter == "semantic":
+            text_splitter = TablePreservingSemanticChunker(
+                embeddings=get_embedding_function(),
+                breakpoint_threshold_type="percentile",
+                chunk_size=max_token_length,
+                length_function=lambda x: len(enc.encode(x)),
+                table_augmenter=table_augmenter,
+            )
+        elif splitter == "character":
+            text_splitter = TablePreservingTextSplitter(
+                chunk_size=max_token_length,
+                chunk_overlap=0,
+                length_function=lambda x: len(enc.encode(x)),
+                is_separator_regex=False,
+                table_augmenter=table_augmenter,
+            )
+        split_docs = text_splitter.split_documents(documents)
 
     # Check if any of the docs are too long
     if iter_no < 2:
-        for doc in split_docs:
+        docs_to_resplit = []
+        for doc in split_docs[:]:  # Create a copy to iterate over
             # Check if token length is too long
             if len(enc.encode(doc.page_content)) > max_token_length:
-                doc_index = split_docs.index(doc)
+                docs_to_resplit.append(doc)
                 split_docs.remove(doc)
-                split_docs.insert(
-                    doc_index,
-                    split_documents(
-                        [doc],
-                        splitter=splitter,
-                        max_token_length=max_token_length,
-                        iter_no=iter_no + 1,
-                    ),
-                )
 
+        # Resplit oversized documents
+        for doc in docs_to_resplit:
+            resplit_docs = split_documents(
+                [doc],
+                splitter="character",  # Force character splitter for oversized chunks
+                max_token_length=max_token_length,
+                iter_no=iter_no + 1,
+                table_augmenter=table_augmenter,
+            )
+            split_docs.extend(resplit_docs)
+
+    # Flatten any nested lists (shouldn't happen with the new implementation, but keeping for safety)
     split_docs = [
         item
         for sublist in split_docs
         for item in (sublist if isinstance(sublist, list) else [sublist])
     ]
     # Add back the documents that should not be split
-    split_docs += documents_to_avoid_splitting
+    split_docs.extend(documents_to_avoid_splitting)
     return split_docs
 
 
@@ -1480,7 +1540,7 @@ def generate_additional_table_context(table: str) -> str:
     from climate_rag.llms import get_chatbot
     from climate_rag.prompts import table_augmentation_prompt
 
-    llm = get_chatbot("gemini-1.5-flash")
+    llm = get_chatbot("gemini-2.5-flash-preview-05-20")
 
     prompt = ChatPromptTemplate.from_messages(
         [("system", table_augmentation_prompt), ("human", table)]
@@ -1520,9 +1580,6 @@ def initialize_project_indices(r, project_id):
     Returns:
         bool: True if indices were created or already existed, False on error
     """
-    from redis import ResponseError
-    from redis.commands.search.field import NumericField, TagField, TextField
-    from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 
     project_source_index_name = f"{source_index_name}_{project_id}"
     project_zh_source_index_name = f"{zh_source_index_name}_{project_id}"

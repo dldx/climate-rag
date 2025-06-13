@@ -230,6 +230,7 @@ class BaseTablePreservingTextSplitter:
                 # This can be used to add additional context to the table to make retrieval more accurate
                 if table_augmenter:
                     segment["content"] = table_augmenter(segment["content"])
+                    print(".", end="")
                     logger.debug(f"""Augmenting table:\n{segment["content"]}""")
                 # Determine if table can be added based on chunk_size
                 can_add_table = (
