@@ -1057,24 +1057,34 @@ def load_documents():
     return data
 
 
-def clean_document_contents(docs: list[Document]) -> list[Document]:
+def clean_document_contents(
+    docs: list[Document], remove_table_context=False
+) -> list[Document]:
     """
     Clean the contents of a list of documents, removing excessive whitespace and characters that might be artifacts of OCR.
+    Also removes table context if specified.
 
     Args:
         docs: A list of documents to clean.
+        remove_table_context: Whether to remove table context.
     Returns:
         A list of cleaned documents.
     """
     MAX_REPEATS_TO_KEEP = 40
     # This pattern matches any character repeated more than MAX_REPEATS_TO_KEEP times
     pattern = rf"((.)\2{{{MAX_REPEATS_TO_KEEP - 1}}})\2{{1,}}"
+    table_context_pattern = r"<table_context>.*?</table_context>"
 
     for doc in docs:
         # Replace excessive characters with just one instance of the character
         doc.page_content = re.sub(pattern, r"\1", doc.page_content)
         # Remove excessive newlines
         doc.page_content = re.sub(r"\n{2,}", "\n", doc.page_content)
+        # Remove table context if specified
+        if remove_table_context:
+            doc.page_content = re.sub(
+                table_context_pattern, "", doc.page_content, flags=re.DOTALL
+            )
     return docs
 
 
@@ -1305,18 +1315,24 @@ def _unique_documents(documents: Sequence[Document]) -> List[Document]:
     return [doc for i, doc in enumerate(documents) if doc not in documents[:i]]
 
 
-def retrieve_multiple_queries(queries: List[str], retriever, k: int = -1):
-    """Run all LLM generated queries on retriever.
+async def retrieve_multiple_queries(queries: List[str], retriever, k: int = -1):
+    """Run all LLM generated queries on retriever asynchronously.
 
     Args:
         queries: query list
+        retriever: The retriever object (should support ainvoke method)
+        k: Maximum number of unique documents to return
 
     Returns:
         List of retrieved Documents
     """
+    # Run all queries concurrently
+    tasks = [retriever.ainvoke(query) for query in queries]
+    results = await asyncio.gather(*tasks)
+
+    # Flatten the results
     documents = []
-    for query in queries:
-        docs = retriever.invoke(query)
+    for docs in results:
         documents.extend(docs)
 
     unique_documents = _unique_documents(documents)[:k]

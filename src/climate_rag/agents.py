@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import datetime, timezone
 from functools import partial
@@ -23,6 +24,7 @@ from climate_rag.llms import get_chatbot, get_max_token_length
 from climate_rag.schemas import GraphState, SearchQueries, SearchQuery
 from climate_rag.tools import (
     add_urls_to_db,
+    clean_document_contents,
     enc,
     format_docs,
     get_source_document_extra_metadata,
@@ -77,7 +79,7 @@ def improve_question(state: GraphState) -> GraphState:
         language=Language.get(state["language"]).display_name(),
     )
 
-    question_rewriter = re_write_prompt | llm | parser
+    question_rewriter = re_write_prompt | llm.with_structured_output(ImprovedQuestion)
 
     state["initial_question"] = state["question"]
     # Re-write question
@@ -114,9 +116,7 @@ def formulate_query(state: GraphState) -> GraphState:
 
     n_queries = max(state["max_search_queries"], 5)
 
-    llm = get_chatbot(
-        state["llm"], model_kwargs={"response_format": {"type": "json_object"}}
-    )
+    llm = get_chatbot(state["llm"])
 
     parser = PydanticOutputParser(pydantic_object=SearchQueries)
 
@@ -138,7 +138,9 @@ def formulate_query(state: GraphState) -> GraphState:
         language=Language.get(state["language"]).display_name(),
     )
 
-    search_prompt_creator = create_search_prompts | llm | parser
+    search_prompt_creator = create_search_prompts | llm.with_structured_output(
+        SearchQueries
+    )
     search_prompts = search_prompt_creator.invoke({"question": question})
 
     state["search_prompts"] = search_prompts.queries
@@ -220,13 +222,15 @@ def retrieve(state: GraphState) -> GraphState:
     # We will retrieve docs based on many queries
     from climate_rag.tools import retrieve_multiple_queries
 
-    documents = retrieve_multiple_queries(
-        [
-            (query.query_en if state.get("language", "en") == "en" else query.query)
-            for query in state["search_prompts"]
-        ],
-        retriever=retriever,
-        k=k,
+    documents = asyncio.run(
+        retrieve_multiple_queries(
+            [
+                (query.query_en if state.get("language", "en") == "en" else query.query)
+                for query in state["search_prompts"]
+            ],
+            retriever=retriever,
+            k=k,
+        )
     )
 
     state["documents"] = documents
@@ -748,6 +752,8 @@ def generate(state: GraphState) -> GraphState:
             else ""
         )
     else:
+        # Need to remove the <table_context> tags from the page content which were added by the table_augmenter
+        documents = clean_document_contents(documents, remove_table_context=True)
         # Get length of document tokens, and filter so that total tokens is less than 30,000
         documents = np.array(documents)[
             np.array([len(enc.encode(doc.page_content)) for doc in documents]).cumsum()
