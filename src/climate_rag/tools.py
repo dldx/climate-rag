@@ -1146,7 +1146,7 @@ def split_documents(
 
         split_docs = []
 
-        # Process semantic documents
+        # Process semantic documents (smaller documents)
         if semantic_docs:
             text_splitter = TablePreservingSemanticChunker(
                 embeddings=get_embedding_function(),
@@ -1157,14 +1157,14 @@ def split_documents(
             )
             split_docs.extend(text_splitter.split_documents(semantic_docs))
 
-        # Process character documents
+        # Process character documents (bigger documents)
         if character_docs:
             text_splitter = TablePreservingTextSplitter(
                 chunk_size=max_token_length,
                 chunk_overlap=0,
                 length_function=lambda x: len(enc.encode(x)),
                 is_separator_regex=False,
-                table_augmenter=table_augmenter,
+                table_augmenter=None,  # No table augmenter for bigger documents
             )
             split_docs.extend(text_splitter.split_documents(character_docs))
 
