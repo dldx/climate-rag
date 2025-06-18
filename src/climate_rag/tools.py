@@ -1157,9 +1157,17 @@ def split_documents(
         split_docs = []
 
         # Process semantic documents (smaller documents)
+        try:
+            # Try to use Qwen embeddings if available as it is faster and cheaper
+            logger.info("Using Qwen3 4B embeddings for semantic splitting")
+            semantic_embeddings_function = get_embedding_function(
+                model="Qwen/Qwen3-Embedding-4B"
+            )
+        except ValueError:
+            semantic_embeddings_function = get_embedding_function()
         if semantic_docs:
             text_splitter = TablePreservingSemanticChunker(
-                embeddings=get_embedding_function(),
+                embeddings=semantic_embeddings_function,
                 breakpoint_threshold_type="percentile",
                 chunk_size=max_token_length,
                 length_function=lambda x: len(enc.encode(x)),

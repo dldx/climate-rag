@@ -92,7 +92,7 @@ class BaseTablePreservingTextSplitter:
             return len(text) // 4
 
     @staticmethod
-    def _split_large_text_segment(text: str, max_tokens: int = 25_000) -> List[str]:
+    def _split_large_text_segment(text: str, max_tokens: int = 30_000) -> List[str]:
         """
         Split a large text segment into smaller chunks to avoid token limits.
         Uses tiktoken for accurate token counting and character-based splitting.
@@ -305,7 +305,7 @@ class TablePreservingTextSplitter(RecursiveCharacterTextSplitter):
         chunk_size,
         length_function=len,
         table_augmenter=None,
-        max_chunk_tokens: int = 25_000,
+        max_chunk_tokens: int = 30_000,
         **kwargs,
     ):
         self._chunk_size = chunk_size
