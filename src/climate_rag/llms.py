@@ -14,7 +14,7 @@ def get_chatbot(
     """Get a chatbot instance.
 
     Args:
-        llm: The language model to use. Options are "gemini-2.5-flash-preview-05-20", "gemini-2.5-pro-preview-05-06", "gpt-4o", "gpt-4.1", "gpt-4o-mini", "mistral", "claude" or "llama-3.1".
+        llm: The language model to use. Options are "gemini-2.5-flash", "gemini-2.5-pro", "gpt-4o", "gpt-4.1", "gpt-4o-mini", "mistral", "claude" or "llama-3.1".
         **kwargs: optional keyword arguments to pass to the chat model
 
     Returns:

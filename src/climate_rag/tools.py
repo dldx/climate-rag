@@ -1433,8 +1433,8 @@ def extract_metadata_from_source_document(source_text) -> SourceMetadata:
 
     parser = PydanticOutputParser(pydantic_object=SourceMetadata)
 
-    llm = get_chatbot("gemini-2.5-flash-preview-05-20")
-    max_token_length = get_max_token_length("gemini-2.5-flash-preview-05-20")
+    llm = get_chatbot("gemini-2.5-flash")
+    max_token_length = get_max_token_length("gemini-2.5-flash")
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -1556,7 +1556,7 @@ def generate_additional_table_context(table: str) -> str:
     from climate_rag.llms import get_chatbot
     from climate_rag.prompts import table_augmentation_prompt
 
-    llm = get_chatbot("gemini-2.5-flash-preview-05-20")
+    llm = get_chatbot("gemini-2.5-flash")
 
     prompt = ChatPromptTemplate.from_messages(
         [("system", table_augmentation_prompt), ("human", table)]

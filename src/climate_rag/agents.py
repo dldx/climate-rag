@@ -238,13 +238,14 @@ def retrieve(state: GraphState) -> GraphState:
     return {"documents": documents, "search_prompts": state["search_prompts"]}
 
 
-def get_metadata_for_source(r, use_llm: bool, source: str) -> dict:
+def get_metadata_for_source(r, use_llm: bool, project_id: str, source: str) -> dict:
     try:
         metadata = get_source_document_extra_metadata(
             r,
             source,
             metadata_fields=["title", "company_name", "publishing_date"],
             use_llm=use_llm,
+            project_id=project_id,
         )
     except Exception:
         # If metadata not found, continue
@@ -273,7 +274,12 @@ def add_additional_metadata(state: GraphState) -> GraphState:
     unique_sources = list(set([doc.metadata.get("source", None) for doc in documents]))
     # For each source, get titles and company names (if available)
     # Use partial to pass the 'r' argument to the function
-    func = partial(get_metadata_for_source, r, state["do_add_additional_metadata"])
+    func = partial(
+        get_metadata_for_source,
+        r,
+        state["do_add_additional_metadata"],
+        state["project_id"],
+    )
     source_metadatas = list(map(func, unique_sources))
 
     # Now add metadata to documents
