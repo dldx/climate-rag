@@ -19,9 +19,9 @@ from langchain_community.document_loaders import (
     UnstructuredMarkdownLoader,
     YoutubeLoader,
 )
-from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_core.documents import Document
+from langchain_tavily import TavilySearch
 from redis import ResponseError
 from redis.commands.search.field import NumericField, TagField, TextField
 
@@ -59,7 +59,7 @@ from climate_rag.text_splitters import (
 logger = logging.getLogger(__name__)
 enc = tiktoken.encoding_for_model("gpt-4o")
 
-web_search_tool = TavilySearchResults(k=3)
+web_search_tool = TavilySearch(k=3)
 DATA_PATH = "data"
 
 

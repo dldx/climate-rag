@@ -49,6 +49,7 @@ dependencies = [
     "ruff>=0.8.4",
     "voyageai>=0.3.2",
     "fastapi-cache2>=0.2.2",
+    "langchain-tavily>=0.2.3",
 ]
 
 [build-system]
