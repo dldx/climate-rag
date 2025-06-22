@@ -1567,11 +1567,11 @@ def generate_additional_table_context(table: str) -> str:
     llm = get_chatbot("gemini-2.5-flash")
 
     prompt = ChatPromptTemplate.from_messages(
-        [("system", table_augmentation_prompt), ("human", table)]
+        [("system", table_augmentation_prompt), ("human", "{table}")]
     )
 
     table_augmenter_chain = prompt | llm | StrOutputParser()
-    additional_context = table_augmenter_chain.invoke({})
+    additional_context = table_augmenter_chain.invoke({"table": table})
 
     return additional_context
 
