@@ -121,7 +121,7 @@ def check_page_content_for_errors(page_content: str):
     return None
 
 
-def add_urls_to_db(
+async def add_urls_to_db(
     urls: List[str],
     db: Chroma,
     use_firecrawl: bool = False,
@@ -131,6 +131,8 @@ def add_urls_to_db(
     project_id: str = "langchain",
 ) -> List[Document]:
     """Add a list of URLs to the database. Decide which loader to use based on the URL.
+
+    Processes URLs in batches of 5 concurrently for improved performance.
 
     Args:
         urls: A list of URLs to add to the database.
@@ -150,187 +152,247 @@ def add_urls_to_db(
     elif table_augmenter is False:
         table_augmenter = None
 
+    # Process URLs in batches of 5
+    batch_size = 5
+    all_docs = []
+
+    for i in range(0, len(urls), batch_size):
+        batch_urls = urls[i : i + batch_size]
+        print(f"Processing batch {i // batch_size + 1} of {len(batch_urls)} URLs")
+
+        # Create tasks for concurrent processing
+        tasks = []
+        for url in batch_urls:
+            task = asyncio.create_task(
+                process_single_url(
+                    url,
+                    db,
+                    use_firecrawl,
+                    use_gemini,
+                    table_augmenter,
+                    document_prefix,
+                    project_id,
+                )
+            )
+            tasks.append(task)
+
+        # Wait for all tasks in the batch to complete
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Collect results and handle exceptions
+        for result in batch_results:
+            if isinstance(result, Exception):
+                print(f"Error processing URL: {result}")
+            else:
+                all_docs.extend(result)
+
+    # Fetch additional metadata for all processed documents
+    unique_sources = set(doc.metadata["source"] for doc in all_docs)
+    for source in unique_sources:
+        print(f"Fetching additional metadata for: {source} (project {project_id})")
+        get_source_document_extra_metadata(r, source, project_id=project_id)
+
+    return all_docs
+
+
+async def process_single_url(
+    url: str,
+    db: Chroma,
+    use_firecrawl: bool,
+    use_gemini: bool,
+    table_augmenter: Optional[Callable[[str], str]],
+    document_prefix: str,
+    project_id: str,
+) -> List[Document]:
+    """Process a single URL asynchronously."""
+
     docs = []
-    for url in urls:
-        # First check if URL already exists in this project
-        ids_existing = r.keys(f"climate-rag::{project_id}::source:*{url}")
-        # Only add url if it is not already in the database
-        if len(ids_existing) == 0:
-            if url.lower().endswith(".md"):
-                # Can directly download markdown without any processing
-                docs += add_urls_to_db_html(
+
+    # First check if URL already exists in this project
+    ids_existing = r.keys(f"climate-rag::{project_id}::source:*{url}")
+    # Only add url if it is not already in the database
+    if len(ids_existing) == 0:
+        if url.lower().endswith(".md"):
+            # Can directly download markdown without any processing
+            docs += await asyncio.to_thread(
+                add_urls_to_db_html,
+                [url],
+                db,
+                table_augmenter,
+                document_prefix,
+                project_id,
+            )
+        elif (
+            url.lower().endswith(".xls")
+            or url.lower().endswith(".xlsx")
+            or url.lower().endswith(".zip")
+        ):
+            # Cannot load excel files right now
+            store_error_in_redis(url, "Cannot load excel files", "add_urls_to_db")
+        # Check if it is a youtube url
+        elif "youtube.com/watch?v=" in url:
+            # Use the youtube loader
+            docs += await asyncio.to_thread(
+                add_urls_to_db_youtube, [url], db, project_id
+            )
+        else:
+            if use_firecrawl:
+                docs += await asyncio.to_thread(
+                    add_urls_to_db_firecrawl,
                     [url],
                     db,
-                    table_augmenter=table_augmenter,
-                    document_prefix=document_prefix,
-                    project_id=project_id,
+                    table_augmenter,
+                    document_prefix,
+                    project_id,
                 )
-            elif (
-                url.lower().endswith(".xls")
-                or url.lower().endswith(".xlsx")
-                or url.lower().endswith(".zip")
-            ):
-                # Cannot load excel files right now
-                store_error_in_redis(url, "Cannot load excel files", "add_urls_to_db")
-            # Check if it is a youtube url
-            elif "youtube.com/watch?v=" in url:
-                # Use the youtube loader
-                docs += add_urls_to_db_youtube([url], db, project_id=project_id)
+            elif use_gemini:
+                # Use Gemini to process the PDF
+                # download file using headed chrome
+                temp_dir = tempfile.TemporaryDirectory()
+                try:
+                    # Download the file using headed chrome if file is not an image
+                    if ".png" not in url and ".jpg" not in url:
+                        downloaded_urls = await asyncio.to_thread(
+                            download_urls_in_headed_chrome,
+                            urls=[url],
+                            download_dir=temp_dir.name,
+                        )
+                    else:
+                        downloaded_urls = await asyncio.to_thread(
+                            download_urls_with_requests,
+                            urls=[url],
+                            download_dir=temp_dir.name,
+                        )
+                    # Try using Gemini to process the PDF
+                    gemini_docs = await asyncio.to_thread(
+                        add_document_to_db_via_gemini,
+                        downloaded_urls[0]["local_path"],
+                        url,
+                        db,
+                        table_augmenter,
+                        document_prefix,
+                        project_id,
+                    )
+                    docs += gemini_docs
+
+                except Exception:
+                    store_error_in_redis(
+                        url, str(traceback.format_exc()), "headed_chrome"
+                    )
+                    downloaded_urls = []
             else:
-                if use_firecrawl:
-                    docs += add_urls_to_db_firecrawl(
+                if "pdf" in url:
+                    jina_docs = await asyncio.to_thread(
+                        add_urls_to_db_html,
+                        ["https://r.jina.ai/" + url],
+                        db,
+                        table_augmenter,
+                        document_prefix,
+                        project_id,
+                    )
+                    # Check if the URL has been successfully processed
+                    if url in list(
+                        map(
+                            lambda x: x.metadata["source"].replace(
+                                "https://r.jina.ai/", ""
+                            ),
+                            jina_docs,
+                        )
+                    ):
+                        docs += jina_docs
+                    else:
+                        # If file is stored on S3 server, we probably need to use Gemini to process it since jina.ai likely failed
+                        if os.environ["STATIC_PATH"] in url:
+                            # Try using Gemini to process the PDF
+                            uploaded_docs = await asyncio.to_thread(
+                                add_document_to_db_via_gemini,
+                                url,
+                                url,
+                                db,
+                                table_augmenter,
+                                document_prefix,
+                                project_id,
+                            )
+                        else:
+                            # Otherwise, download file using headed chrome
+                            temp_dir = tempfile.TemporaryDirectory()
+                            try:
+                                downloaded_urls = await asyncio.to_thread(
+                                    download_urls_in_headed_chrome,
+                                    urls=[url],
+                                    download_dir=temp_dir.name,
+                                )
+                                # Then upload the downloaded file to the database
+                                if len(downloaded_urls) > 0:
+                                    # Upload documents to server and then process it
+                                    uploaded_docs = await asyncio.to_thread(
+                                        upload_documents,
+                                        files=[downloaded_urls[0]["local_path"]],
+                                        db=db,
+                                        use_gemini=use_gemini,
+                                        table_augmenter=table_augmenter,
+                                        document_prefix=document_prefix,
+                                        project_id=project_id,
+                                    )
+                                    if len(uploaded_docs) > 0 and isinstance(
+                                        uploaded_docs[0], Document
+                                    ):
+                                        # Change the source to the original URL
+                                        modify_document_source_urls(
+                                            uploaded_docs[0].metadata["source"],
+                                            url,
+                                            db,
+                                            r,
+                                            project_id=project_id,
+                                        )
+                                    else:
+                                        # Try using Gemini to process the PDF
+                                        uploaded_docs = await asyncio.to_thread(
+                                            add_document_to_db_via_gemini,
+                                            downloaded_urls[0]["local_path"],
+                                            url,
+                                            db,
+                                            table_augmenter,
+                                            document_prefix,
+                                            project_id,
+                                        )
+                                else:
+                                    raise Exception(
+                                        f"Failed to download file via Headed Chrome: {url}"
+                                    )
+                            except Exception:
+                                store_error_in_redis(
+                                    url,
+                                    str(traceback.format_exc()),
+                                    "headed_chrome",
+                                )
+                                uploaded_docs = []
+                        docs += uploaded_docs
+                else:
+                    # use local chrome loader instead
+                    chrome_docs = await add_urls_to_db_chrome(
                         [url],
                         db,
                         table_augmenter=table_augmenter,
                         document_prefix=document_prefix,
                         project_id=project_id,
                     )
-                elif use_gemini:
-                    # Use Gemini to process the PDF
-                    # download file using headed chrome
-                    temp_dir = tempfile.TemporaryDirectory()
-                    try:
-                        # Download the file using headed chrome if file is not an image
-                        if ".png" not in url and ".jpg" not in url:
-                            downloaded_urls = download_urls_in_headed_chrome(
-                                urls=[url], download_dir=temp_dir.name
-                            )
-                        else:
-                            downloaded_urls = download_urls_with_requests(
-                                urls=[url], download_dir=temp_dir.name
-                            )
-                        # Try using Gemini to process the PDF
-                        gemini_docs = add_document_to_db_via_gemini(
-                            downloaded_urls[0]["local_path"],
-                            url,
-                            db,
-                            table_augmenter=table_augmenter,
-                            document_prefix=document_prefix,
-                            project_id=project_id,
-                        )
-                        docs += gemini_docs
-
-                    except Exception:
-                        store_error_in_redis(
-                            url, str(traceback.format_exc()), "headed_chrome"
-                        )
-                        downloaded_urls = []
-
-                else:
-                    if "pdf" in url:
-                        jina_docs = add_urls_to_db_html(
+                    # Check if the URL has been successfully processed
+                    if url in list(map(lambda x: x.metadata["source"], chrome_docs)):
+                        docs += chrome_docs
+                    else:
+                        # Otherwise, use jina.ai loader
+                        docs += await asyncio.to_thread(
+                            add_urls_to_db_html,
                             ["https://r.jina.ai/" + url],
                             db,
-                            table_augmenter=table_augmenter,
-                            document_prefix=document_prefix,
-                            project_id=project_id,
+                            table_augmenter,
+                            document_prefix,
+                            project_id,
                         )
-                        # Check if the URL has been successfully processed
-                        if url in list(
-                            map(
-                                lambda x: x.metadata["source"].replace(
-                                    "https://r.jina.ai/", ""
-                                ),
-                                jina_docs,
-                            )
-                        ):
-                            docs += jina_docs
-                        else:
-                            # If file is stored on S3 server, we probably need to use Gemini to process it since jina.ai likely failed
-                            if os.environ["STATIC_PATH"] in url:
-                                # Try using Gemini to process the PDF
-                                uploaded_docs = add_document_to_db_via_gemini(
-                                    url,
-                                    url,
-                                    db,
-                                    table_augmenter=table_augmenter,
-                                    document_prefix=document_prefix,
-                                    project_id=project_id,
-                                )
-                            else:
-                                # Otherwise, download file using headed chrome
-                                temp_dir = tempfile.TemporaryDirectory()
-                                try:
-                                    downloaded_urls = download_urls_in_headed_chrome(
-                                        urls=[url], download_dir=temp_dir.name
-                                    )
-                                    # Then upload the downloaded file to the database
-                                    if len(downloaded_urls) > 0:
-                                        # Upload documents to server and then process it
-                                        uploaded_docs = upload_documents(
-                                            files=[downloaded_urls[0]["local_path"]],
-                                            db=db,
-                                            use_gemini=use_gemini,
-                                            table_augmenter=table_augmenter,
-                                            document_prefix=document_prefix,
-                                            project_id=project_id,
-                                        )
-                                        if len(uploaded_docs) > 0:
-                                            # Change the source to the original URL
-                                            modify_document_source_urls(
-                                                uploaded_docs[0].metadata["source"],
-                                                url,
-                                                db,
-                                                r,
-                                                project_id=project_id,
-                                            )
-                                        else:
-                                            # Try using Gemini to process the PDF
-                                            uploaded_docs = (
-                                                add_document_to_db_via_gemini(
-                                                    downloaded_urls[0]["local_path"],
-                                                    url,
-                                                    db,
-                                                    table_augmenter=table_augmenter,
-                                                    document_prefix=document_prefix,
-                                                    project_id=project_id,
-                                                )
-                                            )
-                                    else:
-                                        raise Exception(
-                                            f"Failed to download file via Headed Chrome: {url}"
-                                        )
-                                except Exception:
-                                    store_error_in_redis(
-                                        url,
-                                        str(traceback.format_exc()),
-                                        "headed_chrome",
-                                    )
-                                    uploaded_docs = []
-                            docs += uploaded_docs
-                    else:
-                        # use local chrome loader instead
-                        chrome_docs = asyncio.run(
-                            add_urls_to_db_chrome(
-                                [url],
-                                db,
-                                table_augmenter=table_augmenter,
-                                document_prefix=document_prefix,
-                                project_id=project_id,
-                            )
-                        )
-                        # Check if the URL has been successfully processed
-                        if url in list(
-                            map(lambda x: x.metadata["source"], chrome_docs)
-                        ):
-                            docs += chrome_docs
-                        else:
-                            # Otherwise, use jina.ai loader
-                            docs += add_urls_to_db_html(
-                                ["https://r.jina.ai/" + url],
-                                db,
-                                table_augmenter=table_augmenter,
-                                document_prefix=document_prefix,
-                                project_id=project_id,
-                            )
+    else:
+        print(f"Already in database (project {project_id}): {url}")
 
-        else:
-            print(f"Already in database (project {project_id}): {url}")
-    # Fetch additional metadata
-    # There should only be one url in this but just in case
-    for i in set(map(lambda x: x.metadata["source"], docs)):
-        print(f"Fetching additional metadata for: {i} (project {project_id})")
-        get_source_document_extra_metadata(r, i, project_id=project_id)
     return docs
 
 
