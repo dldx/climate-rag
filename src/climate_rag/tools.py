@@ -126,6 +126,7 @@ async def add_urls_to_db(
     db: Chroma,
     use_firecrawl: bool = False,
     use_gemini: bool = False,
+    use_html: bool = False,
     table_augmenter: Optional[bool | Callable[[str], str]] = True,
     document_prefix: str = "",
     project_id: str = "langchain",
@@ -139,6 +140,7 @@ async def add_urls_to_db(
         db: The Chroma database instance.
         use_firecrawl: Whether to use FireCrawl to load the URLs.
         use_gemini: Whether to use Gemini to process PDFs.
+        use_html: Whether to use HTML loader to load the URLs or leave it up to Climate RAG to decide.
         table_augmenter: A function to add additional context to tables in the document. If True, use the default table augmenter. If False or None, do not use a table augmenter. If a function, use the provided function.
         document_prefix: A prefix to add to the documents when uploading to the database.
         project_id: The project to add the document to. Defaults to "langchain".
@@ -163,6 +165,7 @@ async def add_urls_to_db(
                 db,
                 use_firecrawl,
                 use_gemini,
+                use_html,
                 table_augmenter,
                 document_prefix,
                 project_id,
@@ -196,6 +199,7 @@ async def process_single_url(
     db: Chroma,
     use_firecrawl: bool,
     use_gemini: bool,
+    use_html: bool,
     table_augmenter: Optional[Callable[[str], str]],
     document_prefix: str,
     project_id: str,
@@ -208,6 +212,15 @@ async def process_single_url(
     ids_existing = r.keys(f"climate-rag::{project_id}::source:*{url}")
     # Only add url if it is not already in the database
     if len(ids_existing) == 0:
+        if use_html:
+            docs += await asyncio.to_thread(
+                add_urls_to_db_html,
+                [url],
+                db,
+                table_augmenter,
+                document_prefix,
+                project_id,
+            )
         if url.lower().endswith(".md"):
             # Can directly download markdown without any processing
             docs += await asyncio.to_thread(
