@@ -132,7 +132,7 @@ async def add_urls_to_db(
 ) -> List[Document]:
     """Add a list of URLs to the database. Decide which loader to use based on the URL.
 
-    Processes URLs in batches of 5 concurrently for improved performance.
+    Uses a semaphore and queue to process up to 5 URLs concurrently for improved performance.
 
     Args:
         urls: A list of URLs to add to the database.
@@ -152,39 +152,35 @@ async def add_urls_to_db(
     elif table_augmenter is False:
         table_augmenter = None
 
-    # Process URLs in batches of 5
-    batch_size = 5
-    all_docs = []
+        # Create semaphore to limit concurrent processing to 5
+    semaphore = asyncio.Semaphore(5)
 
-    for i in range(0, len(urls), batch_size):
-        batch_urls = urls[i : i + batch_size]
-        print(f"Processing batch {i // batch_size + 1} of {len(batch_urls)} URLs")
-
-        # Create tasks for concurrent processing
-        tasks = []
-        for url in batch_urls:
-            task = asyncio.create_task(
-                process_single_url(
-                    url,
-                    db,
-                    use_firecrawl,
-                    use_gemini,
-                    table_augmenter,
-                    document_prefix,
-                    project_id,
-                )
+    # Create task for each URL with semaphore protection
+    async def process_url_with_semaphore(url):
+        async with semaphore:
+            return await process_single_url(
+                url,
+                db,
+                use_firecrawl,
+                use_gemini,
+                table_augmenter,
+                document_prefix,
+                project_id,
             )
-            tasks.append(task)
 
-        # Wait for all tasks in the batch to complete
-        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+    print(f"Processing {len(urls)} URLs with up to 5 concurrent tasks")
 
-        # Collect results and handle exceptions
-        for result in batch_results:
-            if isinstance(result, Exception):
-                print(f"Error processing URL: {result}")
-            else:
-                all_docs.extend(result)
+    # Create tasks for all URLs and run them concurrently
+    tasks = [process_url_with_semaphore(url) for url in urls]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Collect results and handle exceptions
+    all_docs = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            print(f"Error processing URL {urls[i]}: {result}")
+        else:
+            all_docs.extend(result)
 
     # Fetch additional metadata for all processed documents
     unique_sources = set(doc.metadata["source"] for doc in all_docs)
@@ -608,13 +604,16 @@ def add_urls_to_db_firecrawl(
                 print(f"[Firecrawl] Error loading {url}: {e}")
                 if (("429" in str(e)) or ("402" in str(e))) and "pdf" not in url:
                     # use local chrome loader instead
-                    docs += add_urls_to_db(
-                        [url],
-                        db,
-                        table_augmenter=table_augmenter,
-                        document_prefix=document_prefix,
-                        project_id=project_id,
+                    fallback_docs = asyncio.run(
+                        add_urls_to_db(
+                            [url],
+                            db,
+                            table_augmenter=table_augmenter,
+                            document_prefix=document_prefix,
+                            project_id=project_id,
+                        )
                     )
+                    docs += fallback_docs
                 elif "502" in str(e):
                     docs += add_urls_to_db_html(
                         ["https://r.jina.ai/" + url],
@@ -1410,7 +1409,7 @@ async def retrieve_multiple_queries(queries: List[str], retriever, k: int = -1):
     return unique_documents
 
 
-def upload_documents(
+async def upload_documents(
     files: str | List[str],
     db,
     use_gemini: bool = False,
@@ -1482,7 +1481,7 @@ def upload_documents(
                 + filename
             )
             print("Uploaded to tmpfiles.org at ", dl_url)
-        docs += add_urls_to_db(
+        uploaded_docs = await add_urls_to_db(
             [sanitize_url(dl_url)],
             db=db,
             use_gemini=use_gemini,
@@ -1490,6 +1489,7 @@ def upload_documents(
             document_prefix=document_prefix,
             project_id=project_id,
         )
+        docs += uploaded_docs
     return docs
 
 
