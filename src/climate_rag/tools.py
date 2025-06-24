@@ -213,8 +213,7 @@ async def process_single_url(
     # Only add url if it is not already in the database
     if len(ids_existing) == 0:
         if use_html:
-            docs += await asyncio.to_thread(
-                add_urls_to_db_html,
+            docs += await add_urls_to_db_html(
                 [url],
                 db,
                 table_augmenter,
@@ -223,8 +222,7 @@ async def process_single_url(
             )
         if url.lower().endswith(".md"):
             # Can directly download markdown without any processing
-            docs += await asyncio.to_thread(
-                add_urls_to_db_html,
+            docs += await add_urls_to_db_html(
                 [url],
                 db,
                 table_augmenter,
@@ -241,13 +239,10 @@ async def process_single_url(
         # Check if it is a youtube url
         elif "youtube.com/watch?v=" in url:
             # Use the youtube loader
-            docs += await asyncio.to_thread(
-                add_urls_to_db_youtube, [url], db, project_id
-            )
+            docs += await add_urls_to_db_youtube([url], db, project_id)
         else:
             if use_firecrawl:
-                docs += await asyncio.to_thread(
-                    add_urls_to_db_firecrawl,
+                docs += await add_urls_to_db_firecrawl(
                     [url],
                     db,
                     table_augmenter,
@@ -261,20 +256,17 @@ async def process_single_url(
                 try:
                     # Download the file using headed chrome if file is not an image
                     if ".png" not in url and ".jpg" not in url:
-                        downloaded_urls = await asyncio.to_thread(
-                            download_urls_in_headed_chrome,
+                        downloaded_urls = await download_urls_in_headed_chrome(
                             urls=[url],
                             download_dir=temp_dir.name,
                         )
                     else:
-                        downloaded_urls = await asyncio.to_thread(
-                            download_urls_with_requests,
+                        downloaded_urls = await download_urls_with_requests(
                             urls=[url],
                             download_dir=temp_dir.name,
                         )
                     # Try using Gemini to process the PDF
-                    gemini_docs = await asyncio.to_thread(
-                        add_document_to_db_via_gemini,
+                    gemini_docs = await add_document_to_db_via_gemini(
                         downloaded_urls[0]["local_path"],
                         url,
                         db,
@@ -291,8 +283,7 @@ async def process_single_url(
                     downloaded_urls = []
             else:
                 if "pdf" in url:
-                    jina_docs = await asyncio.to_thread(
-                        add_urls_to_db_html,
+                    jina_docs = await add_urls_to_db_html(
                         ["https://r.jina.ai/" + url],
                         db,
                         table_augmenter,
@@ -313,8 +304,7 @@ async def process_single_url(
                         # If file is stored on S3 server, we probably need to use Gemini to process it since jina.ai likely failed
                         if os.environ["STATIC_PATH"] in url:
                             # Try using Gemini to process the PDF
-                            uploaded_docs = await asyncio.to_thread(
-                                add_document_to_db_via_gemini,
+                            uploaded_docs = await add_document_to_db_via_gemini(
                                 url,
                                 url,
                                 db,
@@ -326,16 +316,14 @@ async def process_single_url(
                             # Otherwise, download file using headed chrome
                             temp_dir = tempfile.TemporaryDirectory()
                             try:
-                                downloaded_urls = await asyncio.to_thread(
-                                    download_urls_in_headed_chrome,
+                                downloaded_urls = await download_urls_in_headed_chrome(
                                     urls=[url],
                                     download_dir=temp_dir.name,
                                 )
                                 # Then upload the downloaded file to the database
                                 if len(downloaded_urls) > 0:
                                     # Upload documents to server and then process it
-                                    uploaded_docs = await asyncio.to_thread(
-                                        upload_documents,
+                                    uploaded_docs = await upload_documents(
                                         files=[downloaded_urls[0]["local_path"]],
                                         db=db,
                                         use_gemini=use_gemini,
@@ -356,14 +344,15 @@ async def process_single_url(
                                         )
                                     else:
                                         # Try using Gemini to process the PDF
-                                        uploaded_docs = await asyncio.to_thread(
-                                            add_document_to_db_via_gemini,
-                                            downloaded_urls[0]["local_path"],
-                                            url,
-                                            db,
-                                            table_augmenter,
-                                            document_prefix,
-                                            project_id,
+                                        uploaded_docs = (
+                                            await add_document_to_db_via_gemini(
+                                                downloaded_urls[0]["local_path"],
+                                                url,
+                                                db,
+                                                table_augmenter,
+                                                document_prefix,
+                                                project_id,
+                                            )
                                         )
                                 else:
                                     raise Exception(
@@ -391,8 +380,7 @@ async def process_single_url(
                         docs += chrome_docs
                     else:
                         # Otherwise, use jina.ai loader
-                        docs += await asyncio.to_thread(
-                            add_urls_to_db_html,
+                        docs += await add_urls_to_db_html(
                             ["https://r.jina.ai/" + url],
                             db,
                             table_augmenter,
