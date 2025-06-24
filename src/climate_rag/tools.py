@@ -1119,6 +1119,34 @@ def load_documents():
     return data
 
 
+def clean_text(
+    text: str, remove_table_context: bool = False, max_repeats: int = 40
+) -> str:
+    """
+    Clean the contents of a text string, removing excessive whitespace and characters that might be artifacts of OCR.
+    Also removes table context if specified.
+
+    Args:
+        text: The text to clean.
+        remove_table_context: Whether to remove table context.
+        max_repeats: The maximum number of consecutive characters to keep.
+
+    Returns:
+        A cleaned text string.
+    """
+    pattern = rf"((.)\2{{{max_repeats - 1}}})\2{{1,}}"
+    table_context_pattern = r"<table_context>.*?</table_context>"
+
+    # Replace excessive characters with just one instance of the character
+    text = re.sub(pattern, r"\1", text)
+    # Remove excessive newlines
+    text = re.sub(r"\n{2,}", "\n", text)
+    # Remove table context if specified
+    if remove_table_context:
+        text = re.sub(table_context_pattern, "", text, flags=re.DOTALL)
+    return text
+
+
 def clean_document_contents(
     docs: list[Document], remove_table_context=False
 ) -> list[Document]:
@@ -1132,21 +1160,11 @@ def clean_document_contents(
     Returns:
         A list of cleaned documents.
     """
-    MAX_REPEATS_TO_KEEP = 40
-    # This pattern matches any character repeated more than MAX_REPEATS_TO_KEEP times
-    pattern = rf"((.)\2{{{MAX_REPEATS_TO_KEEP - 1}}})\2{{1,}}"
-    table_context_pattern = r"<table_context>.*?</table_context>"
 
     for doc in docs:
-        # Replace excessive characters with just one instance of the character
-        doc.page_content = re.sub(pattern, r"\1", doc.page_content)
-        # Remove excessive newlines
-        doc.page_content = re.sub(r"\n{2,}", "\n", doc.page_content)
-        # Remove table context if specified
-        if remove_table_context:
-            doc.page_content = re.sub(
-                table_context_pattern, "", doc.page_content, flags=re.DOTALL
-            )
+        doc.page_content = clean_text(
+            doc.page_content, remove_table_context, max_repeats=30
+        )
     return docs
 
 
