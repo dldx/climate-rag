@@ -220,8 +220,8 @@ async def process_single_url(
                 document_prefix,
                 project_id,
             )
-        if url.lower().endswith(".md"):
-            # Can directly download markdown without any processing
+        if url.lower().endswith(".md") or url.lower().endswith(".txt"):
+            # Can directly download markdown or text files without any processing
             docs += await add_urls_to_db_html(
                 [url],
                 db,
@@ -414,7 +414,7 @@ async def add_urls_to_db_html(
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
         }
-        if ("pdf" in url) and ("r.jina.ai" not in url):
+        if url.lower().endswith(".pdf") and ("r.jina.ai" not in url):
             url = "https://r.jina.ai/" + url
         if "r.jina.ai" in url:
             default_header_template["Authorization"] = (
