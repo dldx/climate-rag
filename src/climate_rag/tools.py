@@ -393,7 +393,7 @@ async def process_single_url(
     return docs
 
 
-def add_urls_to_db_html(
+async def add_urls_to_db_html(
     urls: List[str], db, table_augmenter, document_prefix, project_id
 ) -> List[Document]:
     from langchain_community.document_loaders import AsyncHtmlLoader
@@ -427,7 +427,7 @@ def add_urls_to_db_html(
         if len(ids_existing) == 0:
             print("Adding to database: ", url)
             loader = AsyncHtmlLoader([url], header_template=default_header_template)
-            webdocs = loader.load()
+            webdocs = await loader.aload()
             assert len(webdocs) == 1, "Only one document should be returned"
             doc = webdocs[0]
             doc.metadata["source"] = url
@@ -446,7 +446,7 @@ def add_urls_to_db_html(
                     loader = AsyncHtmlLoader(
                         [url], header_template=default_header_template
                     )
-                    webdocs = loader.load()
+                    webdocs = await loader.aload()
                     doc.metadata["raw_html"] = webdocs[0].page_content
                 doc = clean_document_contents([doc])[0]
                 # Add prefix to document
@@ -461,7 +461,9 @@ def add_urls_to_db_html(
     return docs
 
 
-def add_urls_to_db_youtube(urls: List[str], db, project_id: str) -> List[Document]:
+async def add_urls_to_db_youtube(
+    urls: List[str], db, project_id: str
+) -> List[Document]:
     docs = []
     for url in urls:
         ids_existing = r.keys(f"*{url}")
@@ -492,7 +494,7 @@ def add_urls_to_db_youtube(urls: List[str], db, project_id: str) -> List[Documen
     return docs
 
 
-def add_document_to_db_via_gemini(
+async def add_document_to_db_via_gemini(
     doc_uri: os.PathLike | str,
     original_uri: str,
     db,
@@ -562,7 +564,7 @@ def add_document_to_db_via_gemini(
     return docs
 
 
-def add_urls_to_db_firecrawl(
+async def add_urls_to_db_firecrawl(
     urls: List[str],
     db,
     table_augmenter=None,
@@ -605,18 +607,16 @@ def add_urls_to_db_firecrawl(
                 print(f"[Firecrawl] Error loading {url}: {e}")
                 if (("429" in str(e)) or ("402" in str(e))) and "pdf" not in url:
                     # use local chrome loader instead
-                    fallback_docs = asyncio.run(
-                        add_urls_to_db(
-                            [url],
-                            db,
-                            table_augmenter=table_augmenter,
-                            document_prefix=document_prefix,
-                            project_id=project_id,
-                        )
+                    fallback_docs = await add_urls_to_db(
+                        [url],
+                        db,
+                        table_augmenter=table_augmenter,
+                        document_prefix=document_prefix,
+                        project_id=project_id,
                     )
                     docs += fallback_docs
                 elif "502" in str(e):
-                    docs += add_urls_to_db_html(
+                    docs += await add_urls_to_db_html(
                         ["https://r.jina.ai/" + url],
                         db,
                         table_augmenter=table_augmenter,
@@ -624,7 +624,7 @@ def add_urls_to_db_firecrawl(
                         project_id=project_id,
                     )
                 else:
-                    docs += add_urls_to_db_html(
+                    docs += await add_urls_to_db_html(
                         ["https://r.jina.ai/" + url],
                         db,
                         table_augmenter=table_augmenter,
