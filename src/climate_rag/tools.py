@@ -17,7 +17,6 @@ from langchain_community.document_loaders import (
     FireCrawlLoader,
     PyPDFDirectoryLoader,
     UnstructuredMarkdownLoader,
-    YoutubeLoader,
 )
 from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_core.documents import Document
@@ -464,6 +463,11 @@ async def add_urls_to_db_html(
 async def add_urls_to_db_youtube(
     urls: List[str], db, project_id: str
 ) -> List[Document]:
+    from urllib.parse import parse_qs, urlparse
+
+    from youtube_transcript_api import YouTubeTranscriptApi
+    from youtube_transcript_api.formatters import SRTFormatter
+
     docs = []
     for url in urls:
         ids_existing = r.keys(f"*{url}")
@@ -471,16 +475,22 @@ async def add_urls_to_db_youtube(
         if len(ids_existing) == 0:
             print("Adding to database: ", url)
 
-            loader = YoutubeLoader.from_youtube_url(
-                youtube_url=url,
-                # add_video_info=True,
-                language=["en"],
-                translation="en",
+            video_id = parse_qs(urlparse(url).query).get("v", [None])[0]
+            if video_id is None:
+                print(f"[Youtube] Error loading {url}: No video ID found")
+                continue
+
+            ytt_api = YouTubeTranscriptApi()
+            video = ytt_api.fetch(video_id)
+            transcript = SRTFormatter().format_transcript(video)
+            doc = Document(
+                metadata={
+                    "source": url,
+                    "date_added": datetime.datetime.now().isoformat(),
+                    "loader": "youtube",
+                },
+                page_content=transcript,
             )
-            doc = loader.load()[0]
-            doc.metadata["source"] = url
-            doc.metadata["date_added"] = datetime.datetime.now().isoformat()
-            doc.metadata["loader"] = "youtube"
             page_errors = check_page_content_for_errors(doc.page_content)
             if page_errors:
                 print(f"[Youtube] Error loading {url}: {page_errors}")
@@ -491,6 +501,7 @@ async def add_urls_to_db_youtube(
                 docs += [doc]
         else:
             print("Already in database: ", url)
+
     return docs
 
 
