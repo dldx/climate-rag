@@ -14,15 +14,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from cache import r
-from helpers import get_previous_queries, humanize_unix_date
-from schemas import SourceMetadata
-from tools import (
+from climate_rag.cache import r
+from climate_rag.helpers import get_previous_queries, humanize_unix_date
+from climate_rag.schemas import SourceMetadata
+from climate_rag.tools import (
     clean_urls,
     get_source_document_extra_metadata,
     get_sources_based_on_filter,
 )
-from webapp import demo
+from climate_rag.webapp import demo
 
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 
@@ -207,9 +207,11 @@ def get_answer_markdown(
         source_metadata = [
             f"<strong>{source.title}</strong>",
             source.company_name,
-            source.publishing_date.strftime("%B %Y")
-            if source.publishing_date
-            else None,
+            (
+                source.publishing_date.strftime("%B %Y")
+                if source.publishing_date
+                else None
+            ),
             f"<a target='_blank' href='{source.source}'>{source.source}</a>",
         ]
         source_str = ", ".join(filter(None, source_metadata))

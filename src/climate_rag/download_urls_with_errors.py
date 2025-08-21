@@ -1,5 +1,5 @@
-from cache import r
-from tools import add_urls_to_db, get_vector_store
+from climate_rag.cache import r
+from climate_rag.tools import add_urls_to_db, get_vector_store
 
 if __name__ == "__main__":
     print("WARNING: This script has not been updated to use the new project ID system.")

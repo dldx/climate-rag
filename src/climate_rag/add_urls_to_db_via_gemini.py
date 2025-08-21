@@ -4,7 +4,7 @@ from multiprocessing.pool import ThreadPool as Pool
 
 from rich.progress import Progress
 
-from tools import add_urls_to_db, get_vector_store
+from climate_rag.tools import add_urls_to_db, get_vector_store
 
 logging.basicConfig(level=logging.INFO)
 db = get_vector_store(project_id="langchain")

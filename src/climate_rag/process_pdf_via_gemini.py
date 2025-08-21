@@ -7,8 +7,8 @@ from typing import Tuple
 from rich.console import Console
 from rich.markdown import Markdown
 
-from llms import get_chatbot
-from schemas import PDFMetadata
+from climate_rag.llms import get_chatbot
+from climate_rag.schemas import PDFMetadata
 
 logging.basicConfig(level=logging.INFO)
 
@@ -39,8 +39,8 @@ def process_pdf_via_gemini(
     from langchain_core.output_parsers import PydanticOutputParser
     from langchain_core.prompts import ChatPromptTemplate
 
-    from helpers import bin_list_into_chunks
-    from prompts import convert_to_md_prompt, pdf_metadata_extractor_prompt
+    from climate_rag.helpers import bin_list_into_chunks
+    from climate_rag.prompts import convert_to_md_prompt, pdf_metadata_extractor_prompt
 
     llm = get_chatbot("gemini-2.0-flash")
     # First extract the metadata from the PDF

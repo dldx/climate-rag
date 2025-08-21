@@ -8,7 +8,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.base import SerializerProtocol
 from langgraph.graph import END, StateGraph
 
-from agents import (
+from climate_rag.agents import (
     add_additional_metadata,
     add_urls_to_database,
     ask_user_for_feedback,
@@ -22,7 +22,7 @@ from agents import (
     retrieve,
     web_search,
 )
-from schemas import GraphState
+from climate_rag.schemas import GraphState
 
 load_dotenv()
 

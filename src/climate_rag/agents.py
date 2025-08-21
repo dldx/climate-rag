@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import datetime, timezone
 from functools import partial
@@ -17,12 +18,13 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langcodes import Language
 from pydantic import BaseModel, Field
 
-from cache import r
-from helpers import generate_qa_id
-from llms import get_chatbot, get_max_token_length
-from schemas import GraphState, SearchQueries, SearchQuery
-from tools import (
+from climate_rag.cache import r
+from climate_rag.helpers import generate_qa_id
+from climate_rag.llms import get_chatbot, get_max_token_length
+from climate_rag.schemas import GraphState, SearchQueries, SearchQuery
+from climate_rag.tools import (
     add_urls_to_db,
+    clean_document_contents,
     enc,
     format_docs,
     get_source_document_extra_metadata,
@@ -55,7 +57,7 @@ def improve_question(state: GraphState) -> GraphState:
     Returns:
         state (dict): Updates question key with a re-phrased question
     """
-    from prompts import question_rewriter_prompt
+    from climate_rag.prompts import question_rewriter_prompt
 
     ### Question Re-writer
 
@@ -77,7 +79,7 @@ def improve_question(state: GraphState) -> GraphState:
         language=Language.get(state["language"]).display_name(),
     )
 
-    question_rewriter = re_write_prompt | llm | parser
+    question_rewriter = re_write_prompt | llm.with_structured_output(ImprovedQuestion)
 
     state["initial_question"] = state["question"]
     # Re-write question
@@ -110,13 +112,11 @@ def formulate_query(state: GraphState) -> GraphState:
     question = state["question"]
 
     ### Convert question into search query
-    from prompts import planning_agent_prompt
+    from climate_rag.prompts import planning_agent_prompt
 
     n_queries = max(state["max_search_queries"], 5)
 
-    llm = get_chatbot(
-        state["llm"], model_kwargs={"response_format": {"type": "json_object"}}
-    )
+    llm = get_chatbot(state["llm"])
 
     parser = PydanticOutputParser(pydantic_object=SearchQueries)
 
@@ -138,7 +138,9 @@ def formulate_query(state: GraphState) -> GraphState:
         language=Language.get(state["language"]).display_name(),
     )
 
-    search_prompt_creator = create_search_prompts | llm | parser
+    search_prompt_creator = create_search_prompts | llm.with_structured_output(
+        SearchQueries
+    )
     search_prompts = search_prompt_creator.invoke({"question": question})
 
     state["search_prompts"] = search_prompts.queries
@@ -147,7 +149,7 @@ def formulate_query(state: GraphState) -> GraphState:
 
 
 def generate_search_query(state: GraphState) -> GraphState:
-    from prompts import generate_searches_prompt
+    from climate_rag.prompts import generate_searches_prompt
 
     llm = get_chatbot(
         state["llm"], model_kwargs={"response_format": {"type": "json_object"}}
@@ -218,15 +220,17 @@ def retrieve(state: GraphState) -> GraphState:
     else:
         retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": k})
     # We will retrieve docs based on many queries
-    from tools import retrieve_multiple_queries
+    from climate_rag.tools import retrieve_multiple_queries
 
-    documents = retrieve_multiple_queries(
-        [
-            (query.query_en if state.get("language", "en") == "en" else query.query)
-            for query in state["search_prompts"]
-        ],
-        retriever=retriever,
-        k=k,
+    documents = asyncio.run(
+        retrieve_multiple_queries(
+            [
+                (query.query_en if state.get("language", "en") == "en" else query.query)
+                for query in state["search_prompts"]
+            ],
+            retriever=retriever,
+            k=k,
+        )
     )
 
     state["documents"] = documents
@@ -234,13 +238,14 @@ def retrieve(state: GraphState) -> GraphState:
     return {"documents": documents, "search_prompts": state["search_prompts"]}
 
 
-def get_metadata_for_source(r, use_llm: bool, source: str) -> dict:
+def get_metadata_for_source(r, use_llm: bool, project_id: str, source: str) -> dict:
     try:
         metadata = get_source_document_extra_metadata(
             r,
             source,
             metadata_fields=["title", "company_name", "publishing_date"],
             use_llm=use_llm,
+            project_id=project_id,
         )
     except Exception:
         # If metadata not found, continue
@@ -269,7 +274,12 @@ def add_additional_metadata(state: GraphState) -> GraphState:
     unique_sources = list(set([doc.metadata.get("source", None) for doc in documents]))
     # For each source, get titles and company names (if available)
     # Use partial to pass the 'r' argument to the function
-    func = partial(get_metadata_for_source, r, state["do_add_additional_metadata"])
+    func = partial(
+        get_metadata_for_source,
+        r,
+        state["do_add_additional_metadata"],
+        state["project_id"],
+    )
     source_metadatas = list(map(func, unique_sources))
 
     # Now add metadata to documents
@@ -506,7 +516,7 @@ def web_search(state: GraphState) -> GraphState:
 
 
 def crawl_or_not(doc: Document, question: str):
-    from prompts import crawl_grader_prompt
+    from climate_rag.prompts import crawl_grader_prompt
 
     """Decide whether to crawl a web page or not, and if so, which urls to scrape.
 
@@ -631,7 +641,7 @@ def add_urls_to_database(state: GraphState) -> GraphState:
 
 
 ### Edges
-def decide_to_rerank(state: GraphState) -> GraphState:
+def decide_to_rerank(state: GraphState) -> str:
     """
     Determines whether to rerank documents
 
@@ -733,7 +743,7 @@ def generate(state: GraphState) -> GraphState:
     Returns:
         state (dict): New key added to state, generation, that contains LLM generation
     """
-    from prompts import generate_prompt
+    from climate_rag.prompts import generate_prompt
 
     print("---GENERATE---")
     documents = state["documents"]
@@ -748,6 +758,8 @@ def generate(state: GraphState) -> GraphState:
             else ""
         )
     else:
+        # Need to remove the <table_context> tags from the page content which were added by the table_augmenter
+        documents = clean_document_contents(documents, remove_table_context=True)
         # Get length of document tokens, and filter so that total tokens is less than 30,000
         documents = np.array(documents)[
             np.array([len(enc.encode(doc.page_content)) for doc in documents]).cumsum()

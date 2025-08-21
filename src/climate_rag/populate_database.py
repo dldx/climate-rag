@@ -1,6 +1,7 @@
 import argparse
+import asyncio
 
-from tools import (
+from climate_rag.tools import (
     add_to_chroma,
     add_urls_to_db,
     get_vector_store,
@@ -10,8 +11,8 @@ from tools import (
 )
 
 
-def main():
-    # Check if the database should be cleared (using the --clear flag).
+async def main():
+    # Check if the database should be cleared (using the --reset flag).
     parser = argparse.ArgumentParser()
     parser.add_argument("--reset", action="store_true", help="Reset the database.")
     parser.add_argument(
@@ -51,7 +52,8 @@ def main():
     # Create (or update) the data store.
     db = get_vector_store(args.project_id)
     if args.urls:
-        for url in args.urls:
+        # Run URL processing concurrently using asyncio.gather
+        tasks = [
             add_urls_to_db(
                 [url],
                 db,
@@ -60,8 +62,11 @@ def main():
                 document_prefix=args.document_prefix,
                 project_id=args.project_id,
             )
+            for url in args.urls
+        ]
+        await asyncio.gather(*tasks)
     elif args.files:
-        upload_documents(
+        await upload_documents(
             args.files,
             db,
             use_gemini=args.force_gemini,
@@ -77,4 +82,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
