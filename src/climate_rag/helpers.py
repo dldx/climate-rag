@@ -362,7 +362,13 @@ def render_qa_pdfs(qa_id) -> Tuple[str, str]:
 
 
 def modify_document_source_urls(
-    old_url: str, new_url: str, db: Chroma, r: Redis, project_id: str = "langchain"
+    old_url: str,
+    new_url: str,
+    db: Chroma,
+    r: Redis,
+    project_id: str = "langchain",
+    dry_run: bool = False,
+    batch_size: int = 1000,
 ):
     """
     Modify the source URLs of the documents in the database.
@@ -373,32 +379,77 @@ def modify_document_source_urls(
         db (Chroma): The database.
         r (Redis): The Redis connection.
         project_id (str): The project ID.
+        dry_run (bool): If True, only print what would be changed without making actual changes.
+        batch_size (int): Number of documents to update in each batch. Default is 1000.
     """
     from redis import ResponseError
 
     # Rename redis key
     try:
-        r.rename(
-            f"climate-rag::{project_id}::source:{old_url}",
-            f"climate-rag::{project_id}::source:{new_url}",
-        )
-        r.hset(f"climate-rag::{project_id}::source:{new_url}", "source", new_url)
-        r.hset(f"climate-rag::{project_id}::source:{new_url}", "source_alt", old_url)
+        if dry_run:
+            # Check if the Redis key exists without renaming
+            if r.exists(f"climate-rag::{project_id}::source:{old_url}"):
+                print(
+                    f"[DRY RUN] Would rename Redis key: climate-rag::{project_id}::source:{old_url} -> climate-rag::{project_id}::source:{new_url}"
+                )
+                print(f"[DRY RUN] Would set source field to: {new_url}")
+                print(f"[DRY RUN] Would set source_alt field to: {old_url}")
+            else:
+                print(
+                    f"[DRY RUN] Redis key not found for source: {old_url} in project: {project_id}"
+                )
+        else:
+            r.rename(
+                f"climate-rag::{project_id}::source:{old_url}",
+                f"climate-rag::{project_id}::source:{new_url}",
+            )
+            r.hset(f"climate-rag::{project_id}::source:{new_url}", "source", new_url)
+            r.hset(
+                f"climate-rag::{project_id}::source:{new_url}", "source_alt", old_url
+            )
     except ResponseError:
         print(f"Redis key not found for source: {old_url} in project: {project_id}")
 
     # Update documents in the specific project collection
     docs = db.get(where={"source": {"$in": [old_url]}}, include=["metadatas"])
     if len(docs["ids"]) > 0:
-        for doc in docs["metadatas"]:
-            doc["source_alt"] = doc["source"]
-            doc["source"] = new_url
+        total_docs = len(docs["ids"])
+        if dry_run:
+            num_batches = (total_docs + batch_size - 1) // batch_size
+            print(
+                f"[DRY RUN] Would update {total_docs} Chroma documents in {num_batches} batches of up to {batch_size} documents each:"
+            )
+            for i, doc in enumerate(docs["metadatas"]):
+                batch_num = i // batch_size + 1
+                print(
+                    f"[DRY RUN]   Batch {batch_num}, Document {i + 1}: source '{doc['source']}' -> '{new_url}', source_alt -> '{doc['source']}'"
+                )
+        else:
+            # Process documents in batches
+            for i in range(0, total_docs, batch_size):
+                end_idx = min(i + batch_size, total_docs)
+                batch_ids = docs["ids"][i:end_idx]
+                batch_metadatas = docs["metadatas"][i:end_idx]
 
-        db._collection.update(ids=docs["ids"], metadatas=docs["metadatas"])
+                # Update metadata for this batch
+                for doc in batch_metadatas:
+                    doc["source_alt"] = doc["source"]
+                    doc["source"] = new_url
+
+                # Update this batch in the database
+                db._collection.update(ids=batch_ids, metadatas=batch_metadatas)
+                print(
+                    f"Updated batch {i // batch_size + 1}: documents {i + 1} to {end_idx} of {total_docs}"
+                )
     else:
-        print(
-            f"No chroma documents found with source: {old_url} in project: {project_id}"
-        )
+        if dry_run:
+            print(
+                f"[DRY RUN] No chroma documents found with source: {old_url} in project: {project_id}"
+            )
+        else:
+            print(
+                f"No chroma documents found with source: {old_url} in project: {project_id}"
+            )
 
 
 def bin_list_into_chunks(lst, n_chunks):
