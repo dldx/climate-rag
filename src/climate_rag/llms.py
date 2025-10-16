@@ -1,9 +1,11 @@
+import logging
 import os
 
 from dotenv import load_dotenv
 
 from climate_rag.schemas import SupportedLLMs
 
+logger = logging.getLogger(__name__)
 load_dotenv()
 
 
@@ -40,6 +42,15 @@ def get_chatbot(
             max_tokens=4096,
         )
     elif "gemini" in llm:
+        # Try Gemini API first
+        if "GOOGLE_API_KEY" in os.environ and os.getenv("GOOGLE_API_KEY"):
+            from langchain_google_genai import ChatGoogleGenerativeAI
+
+            logger.warning(
+                "Using Gemini via `GOOGLE_API_KEY`. If you want to use Gemini via Vertex AI, please unset `GOOGLE_API_KEY` and set `GOOGLE_PROJECT_ID` and `GOOGLE_APPLICATION_CREDENTIALS`."
+            )
+            return ChatGoogleGenerativeAI(model=llm, temperature=0, **kwargs)
+
         from langchain_google_vertexai import ChatVertexAI
 
         # The GOOGLE_PROJECT_ID environment variable must be set

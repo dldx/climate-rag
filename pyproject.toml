@@ -50,6 +50,7 @@ dependencies = [
     "voyageai>=0.3.2",
     "fastapi-cache2>=0.2.2",
     "langchain-tavily>=0.2.3",
+    "langchain-google-genai>=2.1.12",
 ]
 
 [build-system]
