@@ -29,6 +29,8 @@ def index_exists(r, index_name):
         if "unknown index name" in str(e).lower():
             return False
         raise e
+    except:
+        return True
 
 
 ## Create the sources index
