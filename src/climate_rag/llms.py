@@ -74,10 +74,12 @@ def get_chatbot(
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(
-            model="claude-3-5-sonnet-20240620",
+            model_name=llm,
             temperature=0,
             timeout=None,
             max_retries=2,
+            max_tokens=9_000,
+            **kwargs,
         )
     else:
         raise ValueError(f"Unknown LLM: {llm}")
