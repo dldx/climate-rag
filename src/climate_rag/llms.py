@@ -67,7 +67,9 @@ def get_chatbot(
             **kwargs,
         )
     elif "mistral" in llm:
-        from langchain_community.chat_models import ChatOllama
+        # Moved out of langchain-community in 0.4.x; needs the `langchain-ollama`
+        # package, which is not currently a declared dependency.
+        from langchain_ollama import ChatOllama
 
         return ChatOllama(model="mistral", temperature=0, **kwargs)
     elif "claude" in llm:
@@ -94,4 +96,4 @@ def get_max_token_length(llm: SupportedLLMs) -> int:
     elif "o4-mini" in llm or "o3" in llm:
         return 150_000
     else:
-        return 24_000
+        return 100_000

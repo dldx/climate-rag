@@ -3,8 +3,8 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 import tiktoken
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 logger = logging.getLogger(__name__)
 
